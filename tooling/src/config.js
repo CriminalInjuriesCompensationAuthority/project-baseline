@@ -79,3 +79,48 @@ export function profileLayers(config, profile) {
     }
     return entry.files ?? [];
 }
+
+/**
+ * Whether a file-policy entry applies to a given profile.
+ * An entry with no `profiles` list applies to all profiles; otherwise it applies
+ * only to profiles in the list.
+ *
+ * @param {object} entry file-policy file entry.
+ * @param {string} profile Active profile.
+ * @returns {boolean}
+ */
+export function entryAppliesToProfile(entry, profile) {
+    if (!Array.isArray(entry.profiles)) {
+        return true;
+    }
+    return entry.profiles.includes(profile);
+}
+
+/**
+ * Resolves the baseline source path for a file entry under a given profile.
+ * Prefers `sourceByProfile[profile]`, falling back to `source`.
+ *
+ * @param {object} entry file-policy file entry.
+ * @param {string} profile Active profile.
+ * @returns {string | undefined} Source path relative to the baseline root.
+ */
+export function resolveSource(entry, profile) {
+    if (entry.sourceByProfile && Object.hasOwn(entry.sourceByProfile, profile)) {
+        return entry.sourceByProfile[profile];
+    }
+    return entry.source;
+}
+
+/**
+ * Returns the file-policy entries that apply to a profile, with each entry's
+ * `source` resolved for that profile (so downstream code can treat it uniformly).
+ *
+ * @param {object} filePolicy Parsed file-policy.yaml.
+ * @param {string} profile Active profile.
+ * @returns {object[]} Filtered, source-resolved entries.
+ */
+export function resolvedFileEntries(filePolicy, profile) {
+    return (filePolicy.files ?? [])
+        .filter((entry) => entryAppliesToProfile(entry, profile))
+        .map((entry) => ({ ...entry, source: resolveSource(entry, profile) }));
+}

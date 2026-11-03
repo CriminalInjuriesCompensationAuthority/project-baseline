@@ -9,6 +9,13 @@
 #
 # `whenPresent` is the action used when the file already exists and differs from the baseline.
 # `whenAbsent` defaults to `create` unless stated. Items are evaluated top to bottom.
+#
+# Per-profile source selection:
+#   `source`           default baseline source for the file.
+#   `sourceByProfile`   optional map of <profile> -> source, overriding `source` for that profile.
+#   `profiles`          optional list restricting the entry to specific profiles (omitted = all).
+# When resolving a file for a profile, the tool uses sourceByProfile[profile] if present,
+# otherwise `source`. Entries whose `profiles` list excludes the active profile are skipped.
 
 version: 1
 
@@ -103,7 +110,10 @@ files:
 
   # ---- dependency + security provisioning ----
   - path: .github/dependabot.yml
-    source: dependabot/default.yml
+    source: dependabot/default.yml                 # default: node-service (npm + docker + actions)
+    sourceByProfile:
+      node-library: profiles/node-library/.github/dependabot.yml  # npm + actions, NO docker
+      github-action: profiles/node-library/.github/dependabot.yml # actions repos aren't containerised
     whenAbsent: create          # tracker: "Dependabot updated"
     whenPresent: replace
 
@@ -115,20 +125,26 @@ files:
       Governance-sensitive (controls who must approve PRs). Org-aware: owners come from the repo's
       own org only. Never silently change an existing CODEOWNERS — flag for review.
 
-  # ---- node-service profile files ----
-  - path: .github/workflows/tests.yml
-    source: profiles/node-service/.github/workflows/tests.yml
+  # ---- CI workflow (all profiles): a THIN CALLER of the central reusable workflow ----
+  # The CI *logic* lives once in project-baseline/.github/workflows/node-ci.yml. Each repo
+  # carries only this caller, so changing the pipeline centrally doesn't require editing every
+  # repo's steps — only the pinned ref is bumped (via sync). See design.md "Shared CI/CD".
+  - path: .github/workflows/ci.yml
+    source: profiles/_shared/ci-caller.yml
     whenAbsent: create
     whenPresent: manual
-    note: Existing bespoke test workflow may encode repo-specific steps; review before replacing.
+    note: Thin caller of the central reusable workflow. Review before replacing a bespoke pipeline.
 
+  # ---- node-service only ----
   - path: .github/workflows/sca.yml
     source: profiles/node-service/.github/workflows/sca.yml
+    profiles: [node-service]
     whenAbsent: create
     whenPresent: manual
 
   - path: Dockerfile
     source: profiles/node-service/Dockerfile
+    profiles: [node-service]
     whenAbsent: create
     whenPresent: manual
     note: >
@@ -137,20 +153,33 @@ files:
 
   - path: .dockerignore
     source: profiles/node-service/.dockerignore
+    profiles: [node-service]
     whenAbsent: create
     whenPresent: manual
     note: >
       Whitelist pattern (security: keeps secrets/tests out of the image). The allow-list is
       repo-specific, so review rather than overwrite an existing one.
 
+  # ---- node-library only ----
+  - path: .github/workflows/release.yml
+    source: profiles/node-library/.github/workflows/release.yml
+    profiles: [node-library]
+    whenAbsent: create
+    whenPresent: manual
+    note: Tag-based release workflow for libraries (git vX.Y.Z tag, not npm publish).
+
+  # ---- metadata (all profiles): source selected per profile ----
   - path: .project-baseline.yaml
     source: profiles/node-service/.project-baseline.yaml
+    sourceByProfile:
+      node-library: profiles/node-library/.project-baseline.yaml
     whenAbsent: create          # establishes baseline metadata for a previously-unmanaged repo
     whenPresent: replace
 
-  # ---- create-only scaffold: application code the baseline seeds but never owns ----
+  # ---- create-only scaffold: application code the baseline seeds but never owns (service only) ----
   - path: app.js
     source: profiles/node-service/scaffold/app.js
+    profiles: [node-service]
     whenAbsent: create          # new repos get a running start wired to express-baseline
     whenPresent: leave          # NEVER touch an existing app.js (app-specific, middleware order matters)
     scaffold: true
@@ -160,6 +189,7 @@ files:
 
   - path: bin/www
     source: profiles/node-service/scaffold/bin/www
+    profiles: [node-service]
     whenAbsent: create
     whenPresent: leave
     scaffold: true

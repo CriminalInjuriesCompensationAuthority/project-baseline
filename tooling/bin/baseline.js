@@ -147,6 +147,8 @@ function main() {
             YEAR: String(new Date().getFullYear()),
             ADOPTED_AT: new Date().toISOString().slice(0, 10),
             BASELINE_VERSION: baselineVersion,
+            BASELINE_REF: baseline.config.ciReusableRef ?? 'v1',
+            CI_WORKDIR: '.',
             PORT: '5000',
             START_CMD: './bin/www',
             MAIN_ENTRY: 'src/index.js',
@@ -157,6 +159,7 @@ function main() {
             planned,
             baseline,
             repoRoot,
+            profile,
             vars
         });
 

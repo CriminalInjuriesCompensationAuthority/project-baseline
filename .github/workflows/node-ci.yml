@@ -1,0 +1,61 @@
+name: Node CI (reusable)
+
+# Central reusable CI pipeline for CICA Node repositories.
+# Consuming repos call this via a thin caller workflow rather than copying the steps,
+# so the pipeline logic lives in ONE place. See docs: design.md "Shared CI/CD".
+#
+# Usage from a consuming repo (.github/workflows/ci.yml):
+#   jobs:
+#     ci:
+#       uses: CriminalInjuriesCompensationAuthority/project-baseline/.github/workflows/node-ci.yml@v1
+#       with:
+#         node-version: "24.15.0"
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node.js version to use"
+        type: string
+        default: "24.15.0"
+      working-directory:
+        description: "Directory to run the pipeline in (for monorepo/subdir packages)"
+        type: string
+        default: "."
+      run-audit:
+        description: "Run the npm audit gate"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: "npm"
+          cache-dependency-path: ${{ inputs.working-directory }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (Biome)
+        run: npm run lint
+
+      - name: Test (node:test + c8)
+        run: npm test
+
+      - name: Audit (high, prod)
+        if: ${{ inputs.run-audit }}
+        run: npm run audit:ci

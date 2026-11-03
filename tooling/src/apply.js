@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolvedFileEntries } from './config.js';
 
 /**
  * Substitutes {{PLACEHOLDER}} tokens in template content.
@@ -83,6 +84,7 @@ function readBaselineSource(baselineRoot, entry) {
  * @param {ReturnType<import('./plan.js').plan>} args.planned
  * @param {object} args.baseline Loaded baseline ({ root, filePolicy, ... }).
  * @param {string} args.repoRoot Target repo (read for merge inputs).
+ * @param {string} args.profile Active profile (selects per-profile file sources).
  * @param {Record<string,string>} args.vars Placeholder substitutions.
  * @returns {{
  *   changes: Array<{ path: string, action: string, content: string }>,
@@ -90,9 +92,13 @@ function readBaselineSource(baselineRoot, entry) {
  *   demotedToManual: string[]
  * }}
  */
-export function computeChanges({ planned, baseline, repoRoot, vars }) {
+export function computeChanges({ planned, baseline, repoRoot, profile, vars }) {
     const { root: baselineRoot, filePolicy } = baseline;
-    const policyByPath = new Map((filePolicy.files ?? []).map((f) => [f.path, f]));
+    // Build the lookup from PROFILE-RESOLVED entries so each file's `source` is the
+    // one that applies to this profile (e.g. node-library dependabot, not node-service).
+    const policyByPath = new Map(
+        resolvedFileEntries(filePolicy, profile).map((f) => [f.path, f])
+    );
 
     const changes = [];
     const skippedManual = [];

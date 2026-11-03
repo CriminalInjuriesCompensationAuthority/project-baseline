@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { resolvedFileEntries } from './config.js';
 
 /**
  * File presence/divergence states.
@@ -140,7 +141,9 @@ export function detectorContext(repoRoot) {
 export function inspect({ repoRoot, profile, baseline }) {
     const { root: baselineRoot, filePolicy } = baseline;
 
-    const files = (filePolicy.files ?? []).map((entry) => ({
+    // Only entries that apply to this profile, with `source` resolved per profile.
+    const entries = resolvedFileEntries(filePolicy, profile);
+    const files = entries.map((entry) => ({
         path: entry.path,
         state: fileState(repoRoot, baselineRoot, entry),
         policy: entry
