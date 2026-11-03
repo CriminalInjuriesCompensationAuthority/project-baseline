@@ -1,0 +1,26 @@
+# Dependabot for project-baseline itself.
+# The npm package lives in tooling/, so the npm ecosystem points there (not root).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: ":dependabot: github-actions"
+      include: "scope"
+    groups:
+      all-github-actions:
+        patterns:
+          - "*"
+  - package-ecosystem: "npm"
+    directory: "/tooling"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: ":dependabot: npm"
+      include: "scope"
+    groups:
+      all-npm:
+        patterns:
+          - "*"
