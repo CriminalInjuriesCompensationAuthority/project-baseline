@@ -1,13 +1,8 @@
 {
+    "$schema": "https://biomejs.dev/schemas/2.5.10/schema.json",
     "files": {
         "ignoreUnknown": false,
-        "includes": [
-            "**",
-            "!node_modules",
-            "!coverage",
-            "!dist",
-            "!public"
-        ]
+        "includes": ["**", "!node_modules", "!coverage", "!dist", "!public"]
     },
     "formatter": {
         "enabled": true,
