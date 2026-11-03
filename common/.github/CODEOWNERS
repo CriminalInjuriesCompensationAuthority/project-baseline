@@ -1,0 +1,8 @@
+# CODEOWNERS — provisioned by project-baseline.
+#
+# Owners are ORG-AWARE: GitHub only honours teams in the SAME org as the repo, so {{OWNERS}} is
+# resolved from baseline.config.yaml -> codeowners[<repo org>] at create/sync time. Do not hardcode
+# cross-org teams here — GitHub silently ignores a team from a different org.
+#
+# Default owners for everything in the repo:
+*   {{OWNERS}}

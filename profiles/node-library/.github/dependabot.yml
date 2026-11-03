@@ -1,0 +1,26 @@
+# Dependabot config for the node-library profile.
+# Libraries are not containerised, so the docker ecosystem is omitted (cf. node-service).
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: ":dependabot: github-actions"
+      include: "scope"
+    groups:
+      all-github-actions:
+        patterns:
+          - "*"
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    commit-message:
+      prefix: ":dependabot: npm"
+      include: "scope"
+    groups:
+      all-npm:
+        patterns:
+          - "*"

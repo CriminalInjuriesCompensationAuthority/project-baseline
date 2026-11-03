@@ -1,0 +1,153 @@
+# project-baseline — central configuration and profile registry.
+# This file is the top of the source of truth. `create`, `adopt`, `sync`, and
+# `audit` all read it.
+
+baselineVersion: 0.1.0
+
+# GitHub organisations in scope.
+orgs:
+  - ministryofjustice
+  - CriminalInjuriesCompensationAuthority
+
+# Explicit scope boundaries (recorded decisions — see requirements.md Req 1 / Req 13).
+scope:
+  includes:
+    - Node.js repositories that serve a programmatic purpose (apps/services, libraries, GH Actions)
+  excludes:
+    - language: python
+      reason: >
+        Out of scope. The estate has Python repos (e.g. cica-review-case-documents-airflow:
+        pyproject.toml, ruff, pytest, uv). The baseline is Node-only; a python-service profile is a
+        possible future addition, not committed now.
+    - kind: multi-tool / non-standard
+      example: q-dev-utilities
+      reason: >
+        A collection of loosely-related tool subdirectories with no root package.json. Does not map
+        to a single profile. Out of scope until/unless split into per-tool repos, or handled by a
+        dedicated future profile.
+
+# Default CODEOWNERS teams, resolved per org (GitHub only honours teams in the repo's own org).
+# {{OWNERS}} in common/.github/CODEOWNERS is substituted with the list for the repo's org.
+codeowners:
+  ministryofjustice:
+    - "@ministryofjustice/cica"
+    - "@ministryofjustice/cica-apply"
+  CriminalInjuriesCompensationAuthority:
+    - "@CriminalInjuriesCompensationAuthority/cica-dev-team"
+
+# The repository whose current state defines the target standard.
+referenceImplementation:
+  org: ministryofjustice
+  repo: cica-review-case-documents
+
+# Shared runtime libraries the baseline distributes behaviour through (instead of templating
+# app.js/bin/www). Each is itself a `node-library` repo. See design.md "Shared runtime behaviour".
+#
+# DISTRIBUTION (recorded intent):
+#   Target state: publish to the npm registry (scoped @cica/*), so Dependabot bumps consumers
+#     reliably and updates disseminate automatically (auto-proposed + auto-tested, human-merged).
+#   Interim: consumed via github: semver refs (matches current CICA pattern, e.g. q-router), until
+#     the registry + publish auth is set up. github: refs have weaker Dependabot update support.
+distribution:
+  target: npm-registry           # ultimate goal
+  interim: github-ref            # current stepping stone
+sharedLibraries:
+  express-baseline:
+    status: built             # implemented + tested in /var/dev/cica-express-baseline (19 tests, 100% line cov)
+    profile: node-library
+    org: CriminalInjuriesCompensationAuthority
+    purpose: >
+      Hardened Express runtime behaviour applied by services: helmet/CSP defaults, HSTS, security +
+      Application-Version + cache-control headers, env-var validation, the notFound/error-handler
+      pattern (html + jsonapi flavours), opt-in CSRF and rate limiting, static-asset serving, and a
+      health endpoint. Per-app variation is passed as options, not forked.
+    api:
+      - "applyBaselineSecurity(app, options)   # helmet, HSTS, standard headers; options.csp overrides"
+      - "validateEnv({ mandatory, optional })  # fail-fast env-var validation at boot"
+      - "baselineErrorHandlers(app, options)   # notFound + central handler, last; flavour: html|jsonapi"
+      - "applyCsrf(app, options)               # opt-in csrf-csrf (__Host-request-config cookie)"
+      - "applyRateLimit(app, options)          # opt-in express-rate-limit, auth-aware key + limits"
+      - "serveStaticAssets(app, options)       # public/ + GOV.UK/MoJ assets via resolved paths, cache + no-store"
+      - "healthRouter()                        # GET /health (+ /readiness) — new baseline standard"
+    consumedBy:
+      - profiles/node-service   # starter app.js wires this; see profile scaffold
+
+  "@cica/logger":
+    status: built                 # implemented + tested in /var/dev/cica-logger (27 tests, 100% line cov)
+    profile: node-library
+    org: CriminalInjuriesCompensationAuthority
+    purpose: >
+      pino/pino-http logger as a configurable factory (generalised from cica-review-case-documents
+      middleware/logger): env-driven redaction, correlation id, dev pretty-print. Separate from
+      express-baseline because every repo needs logging, including the headless API and non-HTTP
+      tools that must not pull in Express hardening.
+    api:
+      - "createLogger(options)   # pino/pino-http factory; options.level, redactExtra, pretty"
+    consumedBy:
+      - profiles/node-service
+      - profiles/node-library
+
+  "@cica/nunjucks-govuk":
+    status: built             # implemented + tested in /var/dev/cica-nunjucks-govuk (10 tests, 98% line cov)
+    profile: node-library
+    org: CriminalInjuriesCompensationAuthority
+    purpose: >
+      nunjucks template-engine factory with GOV.UK + MoJ frontend loader paths and common globals
+      (generalised from RCD/WEB templateEngine). Web apps only — the API must not drag in nunjucks.
+      OWNS robust frontend asset/template path resolution: paths are resolved via `require.resolve`
+      of @ministryofjustice/frontend and govuk-frontend, so consuming apps NEVER reference
+      node_modules/govuk-frontend/* by literal path (that reaches into an undeclared transitive dep).
+      Peer-depends on @ministryofjustice/frontend (the declared direct dep per policies/versions.json).
+    api:
+      - "createTemplateEngineService(app, { loaderPaths, globals }).init()"
+      - "resolveFrontendAssetPaths()   # returns { govuk, moj } absolute dirs via require.resolve"
+    peerDependencies:
+      - "@ministryofjustice/frontend"   # direct dep in the consuming app; owns govuk-frontend transitively
+    consumedBy:
+      - profiles/node-service   # web-serving services only
+
+# Metadata file each managed repo carries (see docs/metadata.md).
+metadataFile: .project-baseline.yaml
+
+# Registered profiles. `files` lists the resolution layers applied, in order.
+profiles:
+  node-service:
+    description: Deployable Node.js application/service.
+    status: active
+    files:
+      - common/
+      - profiles/node-service/
+    provisions:
+      dependabot: dependabot/default.yml
+    examples:
+      - ministryofjustice/cica-apply-web
+      - ministryofjustice/cica-apply-data-capture-service
+
+  node-library:
+    description: "Publishable Node.js library/helper (consumed via github: semver tags, not npm registry)."
+    status: active
+    files:
+      - common/
+      - profiles/node-library/
+    provisions:
+      dependabot: profiles/node-library/.github/dependabot.yml   # npm + github-actions, no docker
+    release: tag-based            # git vX.Y.Z tag + GitHub Release, not npm publish
+    examples:
+      - CriminalInjuriesCompensationAuthority/q-router
+      - CriminalInjuriesCompensationAuthority/q-templates-application
+      - CriminalInjuriesCompensationAuthority/q-template-validator
+      - CriminalInjuriesCompensationAuthority/q-transformer
+
+  github-action:
+    description: GitHub Action repository.
+    status: planned
+    files:
+      - common/
+      - profiles/github-action/
+
+  legacy:
+    description: Reduced transitional standard; keeps existing Jest/ESLint until migrated.
+    status: planned
+    files:
+      - common/
+      - profiles/legacy/

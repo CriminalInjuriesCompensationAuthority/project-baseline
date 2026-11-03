@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# Test / coverage output
+coverage/
+
+# Scratch / local-only working area
+stuff/
+
+# Build artifacts (profile- or repo-specific; extend per project)
+dist/

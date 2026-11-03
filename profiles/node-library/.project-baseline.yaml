@@ -1,0 +1,6 @@
+# Written by project-baseline on create/adopt. See docs/metadata.md.
+baselineVersion: "{{BASELINE_VERSION}}"
+profile: node-library
+org: "{{ORG}}"
+adoptedAt: "{{ADOPTED_AT}}"
+managed: true

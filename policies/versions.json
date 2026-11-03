@@ -1,0 +1,43 @@
+{
+    "_comment": "Approved dependency/runtime version policy. Consumed by create, adopt, sync, and audit. Per-profile overrides may be added under 'profiles'.",
+    "node": {
+        "engines": ">=24.15.0",
+        "ciNodeVersion": "24.15.0",
+        "dockerBaseImage": "node:24-trixie-slim"
+    },
+    "npm": {
+        "engines": ">=11.12.1"
+    },
+    "toolchain": {
+        "biome": "2.5.10",
+        "husky": "9",
+        "gitleaks": "8.21.2",
+        "c8": "12"
+    },
+    "frontend": {
+        "_comment": "GOV.UK/MoJ frontend. Declare @ministryofjustice/frontend as the DIRECT dependency; it owns govuk-frontend as a managed transitive dep. Do NOT declare govuk-frontend directly, and do NOT reference node_modules/govuk-frontend/* by literal path (see design.md 'Frontend dependency direction'). Asset paths are resolved by @cica/nunjucks-govuk / express-baseline serveStaticAssets.",
+        "directDependency": "@ministryofjustice/frontend",
+        "approvedRange": "^11.0.1",
+        "transitive": {
+            "govuk-frontend": "owned by @ministryofjustice/frontend (do not declare directly)"
+        },
+        "versionSkewFound": {
+            "cica-review-case-documents": "@ministryofjustice/frontend ^11 (govuk 6.4.0)",
+            "cica-apply-web": "@ministryofjustice/frontend ^5 (govuk 5.11.1)",
+            "action": "standardise web apps onto the approvedRange major as a reviewed upgrade"
+        }
+    },
+    "profiles": {
+        "node-service": {
+            "dockerBaseImage": "node:24-trixie-slim"
+        },
+        "node-library": {
+            "_note": "No Docker image (not containerised). Released via git semver tag, not npm registry.",
+            "release": "tag-based"
+        },
+        "github-action": {},
+        "legacy": {
+            "_note": "Transitional: engines floor relaxed; keeps existing Jest/ESLint until migrated."
+        }
+    }
+}

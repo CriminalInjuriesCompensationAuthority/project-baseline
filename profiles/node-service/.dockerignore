@@ -1,0 +1,14 @@
+# Disallow all files — whitelist what the image needs instead of blacklisting.
+# This keeps secrets, tests, and local tooling out of the build context by default.
+*
+
+# Allow only what the runtime image needs (extend per service):
+!package.json
+!package-lock.json
+!app.js
+!bin
+# !db
+# !docs
+# !middleware
+# !public
+# !src

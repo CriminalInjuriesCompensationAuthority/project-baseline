@@ -1,0 +1,24 @@
+# Central security policy for project-baseline.
+# Consumed by the CI workflows and the audit/drift report.
+
+npmAudit:
+  # npm audit --audit-level=<level> --omit=dev, run as a required CI check.
+  auditLevel: high        # fail on this severity and above
+  omitDev: true
+  retries: 3              # transient-registry resilience (see node-service sca workflow)
+
+gitleaks:
+  enabled: true
+  version: "8.21.2"       # pinned to avoid CLI drift across runners
+  config: .gitleaks.toml  # deployed from common/
+  hooks:
+    preCommit: true       # gitleaks protect --staged
+    prePush: true         # gitleaks detect
+
+dependabot:
+  enabled: true
+  config: .github/dependabot.yml   # deployed from dependabot/default.yml
+
+# Secret-scanning / SCA shared action (MoJ). Pinned by SHA in the workflow.
+sca:
+  action: ministryofjustice/devsecops-actions/sca

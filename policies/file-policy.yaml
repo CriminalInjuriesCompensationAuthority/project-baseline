@@ -1,0 +1,226 @@
+# file-policy.yaml — how `adopt` treats each standard file when retrofitting a repo.
+#
+# Actions:
+#   create   file absent in target  -> add the baseline version
+#   replace  file present           -> overwrite with the baseline version (safe, mechanical)
+#   merge    file present           -> combine baseline + existing per a documented merge rule
+#   manual   divergence needing a human decision -> never auto-written; listed in the PR as a TODO
+#   leave    already compliant or legitimately repo-specific -> do nothing
+#
+# `whenPresent` is the action used when the file already exists and differs from the baseline.
+# `whenAbsent` defaults to `create` unless stated. Items are evaluated top to bottom.
+
+version: 1
+
+files:
+  # ---- common/ : mechanical, safe to standardise ----
+  - path: .editorconfig
+    source: common/.editorconfig
+    whenAbsent: create
+    whenPresent: replace
+
+  - path: .gitattributes
+    source: common/.gitattributes
+    whenAbsent: create
+    whenPresent: replace
+
+  - path: .gitignore
+    source: common/.gitignore
+    whenAbsent: create
+    whenPresent: merge
+    merge:
+      strategy: union-lines
+      note: >
+        Union of baseline entries and existing entries, de-duplicated, order preserved.
+        Never remove an existing ignore line (a repo may legitimately ignore extra artifacts).
+
+  - path: .gitleaks.toml
+    source: common/.gitleaks.toml
+    whenAbsent: create
+    whenPresent: manual
+    note: >
+      If a repo already has a gitleaks config it may carry bespoke allowlist entries; merging
+      allowlists blindly can mask real secrets. Flag for human review.
+
+  - path: .c8rc.json
+    source: common/.c8rc.json
+    whenAbsent: create
+    whenPresent: manual
+    staged-with: jest-to-node-test
+    note: >
+      Lands when the `test:node` (c8 node --test) script is introduced, not before. Coverage
+      thresholds are a policy decision; if a repo has lower thresholds, raising them may fail CI
+      until tests are added. Flag rather than force.
+
+  - path: biome.json
+    source: common/biome.json
+    whenAbsent: create
+    whenPresent: replace
+    note: >
+      Replaces the baseline Biome config. If the repo still uses ESLint+Prettier, this is paired
+      with the eslint->biome migration item below (manual).
+
+  - path: .husky/pre-commit
+    source: common/.husky/pre-commit
+    whenAbsent: create
+    whenPresent: replace
+
+  - path: .husky/pre-push
+    source: common/.husky/pre-push
+    whenAbsent: create
+    whenPresent: replace
+
+  - path: .npmrc
+    source: common/.npmrc
+    whenAbsent: create
+    whenPresent: replace
+    note: "engine-strict=true — identical across all surveyed repos."
+
+  - path: LICENSE
+    source: common/LICENSE
+    whenAbsent: create          # {{YEAR}} substituted on create
+    whenPresent: leave
+    note: Do not rewrite an existing LICENSE (copyright year / edits may be deliberate).
+
+  - path: SECURITY.md
+    source: common/SECURITY.md
+    whenAbsent: create          # {{ORG}}/{{REPO}} substituted
+    whenPresent: manual
+    note: Present in some repos; review before replacing in case of bespoke disclosure process.
+
+  - path: AGENTS.md
+    source: common/AGENTS.md
+    whenAbsent: create
+    whenPresent: merge
+    merge:
+      strategy: marker-block
+      marker: "<!-- project-baseline:end-shared -->"
+      note: >
+        Mandatory everywhere (conversational consistency). Only the shared block ABOVE the marker is
+        synced/replaced; everything below the marker (repo-specific guidance) is preserved. If an
+        existing AGENTS.md has no marker, treat as manual: insert the shared block and move existing
+        content below the marker.
+
+  # ---- dependency + security provisioning ----
+  - path: .github/dependabot.yml
+    source: dependabot/default.yml
+    whenAbsent: create          # tracker: "Dependabot updated"
+    whenPresent: replace
+
+  - path: .github/CODEOWNERS
+    source: common/.github/CODEOWNERS
+    whenAbsent: create          # {{OWNERS}} resolved from baseline.config.yaml codeowners[<org>]
+    whenPresent: manual
+    note: >
+      Governance-sensitive (controls who must approve PRs). Org-aware: owners come from the repo's
+      own org only. Never silently change an existing CODEOWNERS — flag for review.
+
+  # ---- node-service profile files ----
+  - path: .github/workflows/tests.yml
+    source: profiles/node-service/.github/workflows/tests.yml
+    whenAbsent: create
+    whenPresent: manual
+    note: Existing bespoke test workflow may encode repo-specific steps; review before replacing.
+
+  - path: .github/workflows/sca.yml
+    source: profiles/node-service/.github/workflows/sca.yml
+    whenAbsent: create
+    whenPresent: manual
+
+  - path: Dockerfile
+    source: profiles/node-service/Dockerfile
+    whenAbsent: create
+    whenPresent: manual
+    note: >
+      Tracker: "Migrated to Multi-stage Docker builds". Dockerfiles usually carry bespoke build
+      steps; migrating to the multi-stage baseline is a reviewed change, never auto-applied.
+
+  - path: .dockerignore
+    source: profiles/node-service/.dockerignore
+    whenAbsent: create
+    whenPresent: manual
+    note: >
+      Whitelist pattern (security: keeps secrets/tests out of the image). The allow-list is
+      repo-specific, so review rather than overwrite an existing one.
+
+  - path: .project-baseline.yaml
+    source: profiles/node-service/.project-baseline.yaml
+    whenAbsent: create          # establishes baseline metadata for a previously-unmanaged repo
+    whenPresent: replace
+
+  # ---- create-only scaffold: application code the baseline seeds but never owns ----
+  - path: app.js
+    source: profiles/node-service/scaffold/app.js
+    whenAbsent: create          # new repos get a running start wired to express-baseline
+    whenPresent: leave          # NEVER touch an existing app.js (app-specific, middleware order matters)
+    scaffold: true
+    note: >
+      Starter only. Shared runtime behaviour lives in the express-baseline library, not here.
+      Adoption and sync never modify an existing app.js. See design.md "Shared runtime behaviour".
+
+  - path: bin/www
+    source: profiles/node-service/scaffold/bin/www
+    whenAbsent: create
+    whenPresent: leave
+    scaffold: true
+    note: Create-only server bootstrap. Never overwritten.
+
+# ---- Migrations: not single files, but tracked transitions. Always manual. ----
+# These are detected by `inspect` and reported in the plan; they are never auto-applied because
+# they change code/behaviour, not just config.
+migrations:
+  - id: eslint-to-biome
+    detect: "presence of .eslintrc.js / eslint-config-airbnb-base in devDependencies"
+    action: manual
+    tracker: Repo Standards Applied
+    strategy: compare-then-cutover
+    guide: docs/migrations/eslint-to-biome.md
+    note: >
+      Biome replaces ESLint AND Prettier. Short coexistence to compare output, then a single cutover
+      PR: add biome.json, reformat (note bracketSpacing false->true churn), drop airbnb rules with no
+      Biome equivalent, remove all eslint*/prettier config + deps, repoint Husky/lint-staged at Biome.
+
+  - id: jest-to-node-test
+    detect: "presence of jest.config.js / jest in devDependencies / scripts.test = jest"
+    action: manual
+    tracker: Repo Standards Applied
+    strategy: dual-runner-coexistence
+    keepsCommonJs: true          # node:test runs CommonJS fine; does NOT require ESM
+    guide: docs/migrations/jest-to-node-test.md
+    note: >
+      Coexistence, not big-bang. Keep `test` = jest (preserving env setup + per-path coverage).
+      Add `test:node` = `c8 node --env-file=.env.test --test` targeting a NEW suffix
+      (*.node.test.js). CI runs both. New tests use node:test; old Jest suites are rewritten and
+      renamed one at a time. Drop Jest only when no *.test.js remain. `.c8rc.json` lands when
+      `test:node` is introduced, not before.
+
+  - id: commonjs-to-esm
+    detect: "absence of \"type\": \"module\" in package.json with CommonJS require() usage"
+    action: manual
+    status: deferred            # ORG DECISION: ESM is optional, not required for node-service
+    required: false
+    decoupledFrom: jest-to-node-test
+    tracker: null               # not tracked as a standard-compliance gate
+    guide: docs/migrations/commonjs-to-esm.md
+    note: >
+      DEFERRED by org decision. ESM is NOT a prerequisite for the node-service profile and is
+      decoupled from the Jest migration (node:test works under CommonJS). A repo can be fully
+      compliant while remaining CommonJS. Only attempt as a separate, opt-in, reviewed migration.
+
+  - id: circleci-to-gha
+    detect: "presence of .circleci/ directory"
+    action: manual
+    tracker: Circle removed
+    note: Add GitHub Actions caller workflows; remove .circleci/ once GHA is green.
+
+  - id: husky4-to-husky9
+    detect: "presence of .huskyrc.js / husky ^4 in devDependencies"
+    action: manual
+    tracker: Repo Standards Applied
+    note: Remove .huskyrc.js + lint-staged v4 setup; adopt .husky/ hooks + husky 9.
+
+  - id: snyk-to-baseline-security
+    detect: "presence of .snyk file"
+    action: manual
+    tracker: Repo Standards Applied
+    note: Migrate from Snyk to the baseline npm audit gate + gitleaks + Dependabot.
