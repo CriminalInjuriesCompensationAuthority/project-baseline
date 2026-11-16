@@ -77,6 +77,17 @@ files:
     whenAbsent: create
     whenPresent: replace
 
+  - path: scripts/hooks/precommit-staged.js
+    source: common/scripts/hooks/precommit-staged.js
+    whenAbsent: create
+    whenPresent: replace
+    note: >
+      Helper invoked by the `precommit:staged` npm script (called from .husky/pre-commit). Operates
+      on staged files only: aborts if a staged file has unstaged changes, runs Biome check --write on
+      staged .js/.json (excluding package-lock.json), re-stages fixes, then runs tests. Mechanical and
+      baseline-owned, so safe to replace. NOTE: the hooks call `npm run precommit`/`prepush`, which
+      must exist in the repo's package.json — see the package.json scripts gap in docs/metadata.md.
+
   - path: .npmrc
     source: common/.npmrc
     whenAbsent: create
