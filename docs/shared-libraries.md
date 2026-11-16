@@ -13,8 +13,13 @@ libraries, which stay app-specific, and why.** It is derived from a factual surv
 > Treat pure value differences as **config/options**, not forks.
 
 Shared *runtime behaviour* is distributed as **versioned libraries consumed as dependencies**, never
-as templated `app.js`/`bin/www` (see `design.md` → "Shared runtime behaviour"). Each library is a
-`node-library` repo, released by git tag, consumed via a `github:` semver ref.
+as templated `app.js`/`bin/www` (see `design.md` → "Shared runtime behaviour"). The three libraries
+live together in the `cica-platform` npm-workspaces monorepo (each a `node-library` package under
+`packages/*`), but are versioned and released on a per-package git tag (`<package>-vX.Y.Z`) and
+published to the npm registry under the `@cica` scope, so consumers depend on them by name and semver
+range (`"@cica/logger": "^0.1.0"`) and take only the packages they need. A plain `github:` ref does
+**not** work for a monorepo (it installs the whole repo root, not one package), so the registry is
+required — see `../cica-platform/docs/packaging.md`.
 
 ## Concern-by-concern verdict
 

@@ -177,7 +177,11 @@ files:
     profiles: [node-library]
     whenAbsent: create
     whenPresent: manual
-    note: Tag-based release workflow for libraries (git vX.Y.Z tag, not npm publish).
+    note: >
+      Per-package tag-based release workflow for libraries (git tag + GitHub Release + npm publish
+      under the @cica scope). NOTE: the template here currently lacks the npm publish step that
+      cica-platform's live release workflow has — see the reconciliation gap in
+      docs/migrations/library-release-npm-publish.md.
 
   # ---- metadata (all profiles): source selected per profile ----
   - path: .project-baseline.yaml

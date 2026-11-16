@@ -109,11 +109,14 @@ Behaviour that should be consistent across services (logging, security headers, 
 distributed as **versioned libraries repos depend on**, *not* copied into each `app.js`. See
 `docs/shared-libraries.md` for the full rationale.
 
+All three live together in the `cica-platform` npm-workspaces monorepo (`../cica-platform`), each a
+standalone, independently-versioned `@cica/*` package consumers import individually.
+
 | Library | Provides | Status |
 | --- | --- | --- |
-| `@cica/logger` | pino logger factory with env-driven redaction + correlation id | **built** (in `../cica-logger`) |
-| `@cica/express-baseline` | helmet/CSP, security headers, env validation, error handlers, health | **built** (in `../cica-express-baseline`) |
-| `@cica/nunjucks-govuk` | nunjucks + GOV.UK/MoJ asset resolution (web apps only) | **built** (in `../cica-nunjucks-govuk`) |
+| `@cica/logger` | pino logger factory with env-driven redaction + correlation id | **built** (`cica-platform/packages/logger`) |
+| `@cica/express-baseline` | helmet/CSP, security headers, env validation, error handlers, health | **built** (`cica-platform/packages/express-baseline`) |
+| `@cica/nunjucks-govuk` | nunjucks + GOV.UK/MoJ asset resolution (web apps only) | **built** (`cica-platform/packages/nunjucks-govuk`) |
 
 ---
 

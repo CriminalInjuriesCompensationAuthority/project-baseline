@@ -391,8 +391,9 @@ Benefits over a templated file:
 - Updates propagate like any dependency (Dependabot bump + CI), with no file-merge conflicts or
   drift-report noise.
 - Security fixes are a single library release that every consumer picks up on the next bump.
-- It reuses the architecture already in place: `express-baseline` is a `node-library` repo, released
-  by git tag, consumed via a `github:` ref.
+- It reuses the architecture already in place: `@cica/express-baseline` is a `node-library` package
+  (in the `cica-platform` monorepo), released by a per-package git tag and published to npm under the
+  `@cica` scope, consumed by name + semver range.
 
 ### The one concession: a create-only scaffold
 

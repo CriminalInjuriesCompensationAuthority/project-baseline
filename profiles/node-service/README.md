@@ -37,8 +37,9 @@ they belong to the repo and the baseline never overwrites them (`file-policy.yam
 
 ## Shared runtime behaviour
 
-Cross-cutting runtime behaviour is provided by **three versioned shared libraries** (each a
-`node-library` repo, consumed via `github:` semver ref), **not** by templated `app.js`. Update
+Cross-cutting runtime behaviour is provided by **three versioned shared libraries** (the `@cica/*`
+packages in the `cica-platform` monorepo, consumed from the npm registry by name + semver range),
+**not** by templated `app.js`. Update
 behaviour by bumping the dependency; per-app differences are passed as options. Full rationale and
 the concern-by-concern classification are in `docs/shared-libraries.md`.
 

@@ -41,19 +41,31 @@ referenceImplementation:
   repo: cica-review-case-documents
 
 # Shared runtime libraries the baseline distributes behaviour through (instead of templating
-# app.js/bin/www). Each is itself a `node-library` repo. See design.md "Shared runtime behaviour".
+# app.js/bin/www). The three live together in ONE npm-workspaces monorepo (`cica-platform`), each
+# still a standalone, independently-versioned `@cica/*` package. See design.md "Shared runtime
+# behaviour" and cica-platform/README.md.
 #
 # DISTRIBUTION (recorded intent):
-#   Target state: publish to the npm registry (scoped @cica/*), so Dependabot bumps consumers
-#     reliably and updates disseminate automatically (auto-proposed + auto-tested, human-merged).
-#   Interim: consumed via github: semver refs (matches current CICA pattern, e.g. q-router), until
-#     the registry + publish auth is set up. github: refs have weaker Dependabot update support.
+#   Monorepo: all three packages live in `cica-platform` (packages/<name>), developed/tested/CI'd
+#     together, but published and imported independently (consumers take only what they need).
+#   Target state: publish to the npm registry (scoped @cica/*), so consumers depend by name + semver
+#     range and Dependabot bumps them reliably (auto-proposed + auto-tested, human-merged). The repo
+#     is already configured for this (publishConfig + Release workflow); it is blocked only on the
+#     @cica npm org + an NPM_TOKEN secret.
+#   NOTE: a plain `github:` ref does NOT work for a monorepo — it installs the whole repo root, not a
+#     single package — so the registry is required, not optional. The interim (until the npm org
+#     exists) is a local Verdaccio registry demo, not github refs. See cica-platform/docs/packaging.md.
 distribution:
-  target: npm-registry           # ultimate goal
-  interim: github-ref            # current stepping stone
+  monorepo: cica-platform        # the single repo housing all shared libraries
+  target: npm-registry           # the distribution mechanism (registry required for a monorepo)
+  interim: local-verdaccio       # stand-in demo until the @cica npm org + NPM_TOKEN exist
+  tagFormat: "<package>-vX.Y.Z"  # per-package release tag; versions are independent per package
 sharedLibraries:
-  express-baseline:
-    status: built             # implemented + tested in /var/dev/cica-express-baseline (19 tests, 100% line cov)
+  "@cica/express-baseline":
+    status: built             # 19 tests, 100% line cov
+    repo: cica-platform       # lives in the monorepo
+    package: "@cica/express-baseline"
+    path: packages/express-baseline
     profile: node-library
     org: CriminalInjuriesCompensationAuthority
     purpose: >
@@ -73,7 +85,10 @@ sharedLibraries:
       - profiles/node-service   # starter app.js wires this; see profile scaffold
 
   "@cica/logger":
-    status: built                 # implemented + tested in /var/dev/cica-logger (27 tests, 100% line cov)
+    status: built                 # 27 tests, 100% line cov
+    repo: cica-platform           # lives in the monorepo
+    package: "@cica/logger"
+    path: packages/logger
     profile: node-library
     org: CriminalInjuriesCompensationAuthority
     purpose: >
@@ -88,7 +103,10 @@ sharedLibraries:
       - profiles/node-library
 
   "@cica/nunjucks-govuk":
-    status: built             # implemented + tested in /var/dev/cica-nunjucks-govuk (10 tests, 98% line cov)
+    status: built             # 10 tests, 98% line cov
+    repo: cica-platform       # lives in the monorepo
+    package: "@cica/nunjucks-govuk"
+    path: packages/nunjucks-govuk
     profile: node-library
     org: CriminalInjuriesCompensationAuthority
     purpose: >
@@ -124,14 +142,26 @@ profiles:
       - ministryofjustice/cica-apply-data-capture-service
 
   node-library:
-    description: "Publishable Node.js library/helper (consumed via github: semver tags, not npm registry)."
+    description: "Publishable Node.js library/helper (published to the npm registry under @cica, consumed by name + semver range)."
     status: active
     files:
       - common/
       - profiles/node-library/
     provisions:
       dependabot: profiles/node-library/.github/dependabot.yml   # npm + github-actions, no docker
-    release: tag-based            # git vX.Y.Z tag + GitHub Release, not npm publish
+    release: tag-based            # per-package git tag + GitHub Release + npm publish (@cica scope)
+    # A single node-library repo holds one package (one package.json at the root). The monorepo
+    # variant below holds several @cica/* packages under packages/* behind one shared root.
+    monorepo:
+      description: >
+        npm-workspaces monorepo of several node-library packages. Shared dev toolchain (biome, c8,
+        husky) + CI + dependabot are hoisted to the root; each package keeps its own package.json,
+        is versioned independently, and is released on a per-package tag.
+      layout: packages/*
+      releaseTagFormat: "<package>-vX.Y.Z"   # cf. single-repo vX.Y.Z
+      metadata: root               # one .project-baseline.yaml at the repo root covers all packages
+      examples:
+        - CriminalInjuriesCompensationAuthority/cica-platform   # @cica/logger, @cica/express-baseline, @cica/nunjucks-govuk
     examples:
       - CriminalInjuriesCompensationAuthority/q-router
       - CriminalInjuriesCompensationAuthority/q-templates-application

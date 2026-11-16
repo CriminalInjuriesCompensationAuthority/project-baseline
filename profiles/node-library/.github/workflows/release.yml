@@ -1,7 +1,9 @@
 name: Release
 
-# Tag-based release for libraries consumed via github: semver refs.
-# Publishes a GitHub Release + vX.Y.Z tag — NOT an npm-registry publish.
+# Tag-based release for a SINGLE-package library repo (one package.json at the root).
+# Creates a vX.Y.Z tag + GitHub Release. NOTE: this template does not yet publish to the npm
+# registry; the agreed target is npm publish under the @cica scope (as cica-platform's monorepo
+# release workflow already does). See docs/migrations/library-release-npm-publish.md.
 # Trigger: manual dispatch with the version to cut, after it has been merged to the default branch.
 
 on:
