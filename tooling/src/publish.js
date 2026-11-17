@@ -1,0 +1,269 @@
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+/**
+ * Publishing an adoption branch: push it and open a pull request.
+ *
+ * Deliberately conservative, because this is the one place the tooling writes to GitHub:
+ *  - it NEVER force-pushes and never overwrites an existing remote branch;
+ *  - it refuses if the clone contains commits that are not on the remote base branch (the adoption
+ *    branch is cloned from a local checkout, so unpushed local work would otherwise be published);
+ *  - it is idempotent: if an open PR already exists for the branch it reports it instead;
+ *  - `dryRun` performs every check (read-only) but pushes and opens nothing.
+ */
+
+/**
+ * Runs a command and returns trimmed stdout. Throws (with stderr in the message) on failure.
+ * Injectable into publishAdoption so tests can fake `gh` while using real git.
+ *
+ * @param {string} file
+ * @param {string[]} args
+ * @param {{ cwd?: string }} [opts]
+ * @returns {string}
+ */
+export function defaultRun(file, args, { cwd } = {}) {
+    return execFileSync(file, args, {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe']
+    }).trim();
+}
+
+/**
+ * Parses a GitHub remote URL (https, ssh://, or scp-style) into owner and repo.
+ *
+ * @param {string | undefined | null} url
+ * @returns {{ owner: string, repo: string } | null} Null for anything that is not a GitHub remote.
+ */
+export function parseGitHubRemote(url) {
+    if (!url) {
+        return null;
+    }
+    const match = String(url)
+        .trim()
+        .match(
+            /^(?:https?:\/\/(?:[^@/]+@)?|ssh:\/\/(?:[^@/]+@)?|[^@/\s]+@)github\.com[/:]([^/\s]+)\/([^/\s]+?)(?:\.git)?\/?$/
+        );
+    return match ? { owner: match[1], repo: match[2] } : null;
+}
+
+/**
+ * Decides which org and repo name to use for template placeholders.
+ *
+ * A checkout can live in any folder and the CLI defaults to one org, but links and CODEOWNERS owners
+ * must match the repo's REAL GitHub org and name (owners are looked up per org, and GitHub ignores
+ * teams from another org). So the GitHub origin wins, an explicit `--org` overrides the owner, and
+ * the folder name / default org are only fallbacks when there is no usable GitHub remote.
+ *
+ * @param {string | null | undefined} originUrl The repo's `origin` URL, if any.
+ * @param {{ explicitOrg?: string, folderName: string, defaultOrg: string }} fallbacks
+ * @returns {{ org: string, repoName: string }}
+ */
+export function resolveRepoIdentity(originUrl, { explicitOrg, folderName, defaultOrg }) {
+    const remote = parseGitHubRemote(originUrl);
+    return {
+        org: explicitOrg ?? remote?.owner ?? defaultOrg,
+        repoName: remote?.repo ?? folderName
+    };
+}
+
+/**
+ * Hides credentials embedded in http(s) URLs so they never reach logs or error messages.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+export function redactUrl(text) {
+    return String(text).replace(/(https?:\/\/)[^@/\s]+@/g, '$1***@');
+}
+
+/**
+ * @param {{ baselineVersion: string, profile: string }} args
+ * @returns {string}
+ */
+export function buildPrTitle({ baselineVersion, profile }) {
+    return `chore: adopt project-baseline ${baselineVersion} (${profile})`;
+}
+
+/**
+ * Builds the PR description: what was applied, what still needs a human (with reasons), the diff.
+ *
+ * @param {object} args
+ * @returns {string} Markdown.
+ */
+export function buildPrBody({
+    repoName,
+    profile,
+    baselineVersion,
+    base,
+    branch,
+    changes,
+    skippedManual,
+    demotedToManual,
+    demotedReasons = {},
+    diffStat
+}) {
+    const applied = changes.map(
+        (c) => `- \`${c.path}\` (${c.action})${c.detail ? `: ${c.detail}` : ''}`
+    );
+    const manual = [
+        ...skippedManual.map((p) => `- \`${p}\`: the baseline policy marks this for manual review`),
+        ...demotedToManual.map(
+            (p) =>
+                `- \`${p}\`: ${demotedReasons[p] ?? 'no baseline source, or it cannot be merged safely'}`
+        )
+    ];
+
+    return [
+        `## project-baseline adoption: \`${repoName}\``,
+        '',
+        `Aligns this repo with project-baseline \`${baselineVersion}\` (profile \`${profile}\`). ` +
+            `Branch \`${branch}\` onto \`${base}\`.`,
+        '',
+        '### Applied automatically',
+        ...(applied.length > 0 ? applied : ['- Nothing.']),
+        '',
+        '### Needs a human (deliberately not changed)',
+        ...(manual.length > 0 ? manual : ['- Nothing.']),
+        '',
+        '### Diff stat',
+        '```',
+        diffStat,
+        '```',
+        '',
+        '### Reviewing',
+        '- Nothing here is merged automatically. Review the diff and let CI run.',
+        '- Items under "Needs a human" were left untouched on purpose and still need doing by hand.',
+        '',
+        '_Generated by `baseline apply --push`._',
+        ''
+    ].join('\n');
+}
+
+/**
+ * Pushes the adoption branch and opens a PR.
+ *
+ * @param {object} args
+ * @param {string} args.clone Absolute path of the throwaway clone holding the adoption branch.
+ * @param {string} args.branch Adoption branch name.
+ * @param {string} args.base Remote base branch to open the PR against.
+ * @param {string} args.slug `owner/repo` for `gh`.
+ * @param {string} args.pushUrl Remote URL to push to (the repo's real `origin`).
+ * @param {string} args.title PR title.
+ * @param {string} args.body PR body (markdown).
+ * @param {boolean} [args.draft=false] Open as a draft PR.
+ * @param {boolean} [args.dryRun=false] Run all checks, push and open nothing.
+ * @param {typeof defaultRun} [args.run] Command runner (injectable for tests).
+ * @returns {{ status: 'created' | 'exists' | 'dry-run', url?: string, branch: string }}
+ * @throws {Error} With a redacted, actionable message.
+ */
+export function publishAdoption({
+    clone,
+    branch,
+    base,
+    slug,
+    pushUrl,
+    title,
+    body,
+    draft = false,
+    dryRun = false,
+    run = defaultRun
+}) {
+    try {
+        return publish({ clone, branch, base, slug, pushUrl, title, body, draft, dryRun, run });
+    } catch (err) {
+        throw new Error(redactUrl(err.message), { cause: err });
+    }
+}
+
+function publish({ clone, branch, base, slug, pushUrl, title, body, draft, dryRun, run }) {
+    const inClone = (file, args) => run(file, args, { cwd: clone });
+
+    // 1. The remote must have the base branch, or there is nothing to open a PR against.
+    if (!inClone('git', ['ls-remote', '--heads', pushUrl, `refs/heads/${base}`])) {
+        throw new Error(
+            `The remote has no branch "${base}", so there is nothing to open a PR against. ` +
+                `Push "${base}" first (or check out the repo's default branch before running apply).`
+        );
+    }
+
+    // 2. Never overwrite an existing remote branch. If it already has an open PR, just report it.
+    if (inClone('git', ['ls-remote', '--heads', pushUrl, `refs/heads/${branch}`])) {
+        const prs = JSON.parse(
+            inClone('gh', [
+                'pr',
+                'list',
+                '--repo',
+                slug,
+                '--head',
+                branch,
+                '--state',
+                'open',
+                '--json',
+                'url'
+            ]) || '[]'
+        );
+        if (prs.length > 0) {
+            return { status: 'exists', url: prs[0].url, branch };
+        }
+        throw new Error(
+            `Branch "${branch}" already exists on the remote but has no open PR. ` +
+                'Refusing to overwrite it; delete or rename that branch, then retry.'
+        );
+    }
+
+    // 3. The branch must add ONLY the adoption commit on top of the remote base. Anything more is
+    //    unpushed local work that this push would publish.
+    inClone('git', ['fetch', '--quiet', pushUrl, base]);
+    const ahead = inClone('git', ['rev-list', '--count', `FETCH_HEAD..${branch}`]);
+    if (Number(ahead) === 0) {
+        throw new Error('Nothing to publish: the adoption branch adds no commits.');
+    }
+    if (Number(ahead) > 1) {
+        throw new Error(
+            `The adoption branch is built on ${Number(ahead) - 1} commit(s) that are not on the remote ` +
+                `"${base}" (unpushed local work). Pushing it would publish that work. ` +
+                'Push or remove those commits, then retry.'
+        );
+    }
+
+    if (dryRun) {
+        return { status: 'dry-run', branch };
+    }
+
+    // 4. Push (never forced), then 5. open the PR.
+    inClone('git', ['push', pushUrl, `${branch}:refs/heads/${branch}`]);
+
+    const dir = mkdtempSync(join(tmpdir(), 'baseline-pr-'));
+    try {
+        const bodyFile = join(dir, 'body.md');
+        writeFileSync(bodyFile, body);
+        const output = inClone('gh', [
+            'pr',
+            'create',
+            '--repo',
+            slug,
+            '--base',
+            base,
+            '--head',
+            branch,
+            '--title',
+            title,
+            '--body-file',
+            bodyFile,
+            ...(draft ? ['--draft'] : [])
+        ]);
+        const url = output.split('\n').filter(Boolean).pop();
+        return { status: 'created', url, branch };
+    } catch (err) {
+        throw new Error(
+            `The branch was pushed (${branch}) but opening the PR failed: ${err.message}\n` +
+                `Open it manually: gh pr create --repo ${slug} --base ${base} --head ${branch}`,
+            { cause: err }
+        );
+    } finally {
+        rmSync(dir, { recursive: true, force: true });
+    }
+}

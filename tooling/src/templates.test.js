@@ -40,6 +40,12 @@ describe('buildVars', () => {
         assert.equal(vars.DEFAULT_BRANCH, 'master');
     });
 
+    it('prefers an explicit repo name (from the GitHub remote) over the local folder name', () => {
+        // A checkout can live in any folder; links in generated files must use the real repo name.
+        assert.equal(buildVars({ ...base, repoName: 'real-name' }).REPO, 'real-name');
+        assert.equal(buildVars({ ...base, repoName: undefined }).REPO, 'my-repo');
+    });
+
     it('takes the baseline version and CI ref from the baseline config', () => {
         const vars = buildVars(base);
         assert.equal(vars.BASELINE_VERSION, baseline.config.baselineVersion);

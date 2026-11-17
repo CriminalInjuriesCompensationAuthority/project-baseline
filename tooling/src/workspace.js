@@ -4,14 +4,20 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 /**
- * Runs git in a given cwd, returning trimmed stdout. Throws on non-zero exit.
+ * Runs git in a given cwd, returning trimmed stdout. Throws on non-zero exit. stderr is captured
+ * (it appears in the thrown error's message) rather than leaking to the terminal, so callers that
+ * expect and handle a failure, such as a missing remote, stay quiet.
  *
  * @param {string[]} args git arguments.
  * @param {string} cwd Working directory.
  * @returns {string}
  */
 function git(args, cwd) {
-    return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+    return execFileSync('git', args, {
+        cwd,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe']
+    }).trim();
 }
 
 /**
@@ -65,18 +71,61 @@ export function writeMetadata(workdir, meta) {
 }
 
 /**
- * Creates the adoption branch, stages everything, and commits. Does NOT push.
- * Configures a local identity so the commit works in CI/sandbox without global config.
+ * Reads the configured git identity for a repo (local config, falling back to global).
  *
  * @param {string} workdir
- * @param {{ branch: string, message: string }} opts
+ * @returns {{ name: string, email: string } | undefined} Undefined unless BOTH are configured.
+ */
+export function gitIdentity(workdir) {
+    try {
+        const name = git(['config', 'user.name'], workdir);
+        const email = git(['config', 'user.email'], workdir);
+        return name && email ? { name, email } : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+/**
+ * Whether tracked files have uncommitted (staged or unstaged) changes. Untracked files are ignored:
+ * they never feed a merge. `apply` reads merge inputs from the working tree but commits onto a clone
+ * of the COMMITTED state, so uncommitted edits would otherwise be folded into merged files.
+ *
+ * @param {string} workdir
+ * @returns {boolean}
+ */
+export function hasUncommittedChanges(workdir) {
+    return git(['status', '--porcelain', '--untracked-files=no'], workdir) !== '';
+}
+
+/**
+ * Returns the URL of a git remote, or null if the repo has no such remote.
+ *
+ * @param {string} workdir
+ * @param {string} [name='origin']
+ * @returns {string | null}
+ */
+export function remoteUrl(workdir, name = 'origin') {
+    try {
+        return git(['remote', 'get-url', name], workdir) || null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Creates the adoption branch, stages everything, and commits. Does NOT push.
+ * Sets a clone-local identity so the commit works without global git config: the supplied identity
+ * (so commits that get pushed are attributable to a real person), else a placeholder.
+ *
+ * @param {string} workdir
+ * @param {{ branch: string, message: string, identity?: { name: string, email: string } }} opts
  * @returns {{ branch: string, commit: string, filesChanged: number }}
  */
-export function commitOnBranch(workdir, { branch, message }) {
+export function commitOnBranch(workdir, { branch, message, identity }) {
     git(['checkout', '-b', branch], workdir);
-    // Local-only identity; harmless on a throwaway clone.
-    git(['config', 'user.name', 'project-baseline'], workdir);
-    git(['config', 'user.email', 'project-baseline@cica.local'], workdir);
+    git(['config', 'user.name', identity?.name || 'project-baseline'], workdir);
+    git(['config', 'user.email', identity?.email || 'project-baseline@cica.local'], workdir);
     git(['add', '-A'], workdir);
 
     const status = git(['status', '--porcelain'], workdir);

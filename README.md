@@ -68,12 +68,14 @@ Dependabot, gitleaks).
 ## The CLI (`tooling/`)
 
 A Node CLI (`baseline`) that operates on repositories. **All commands below are read-only except
-`apply`, which only writes to a throwaway clone — never your working repo.**
+`apply`, which only writes to a throwaway clone — never your working repo — and, only with
+`--push`, pushes a branch and opens a PR.**
 
 ```
 baseline inspect  <repoPath> --profile <name>   What state is each standard file in?
 baseline plan     <repoPath> --profile <name>   What would change to align this repo?
 baseline apply    <repoPath> --profile <name>   Align a repo (on a clone + branch, committed locally)
+                  [--push [--dry-run] [--draft]] ...and push the branch + open a PR
 baseline audit    <parentDir>                    Estate-wide tracker table (replaces the spreadsheet)
 baseline discover <parentDir>                    Which shared files are we missing from the baseline?
 baseline deps     <parentDir>                    Dependency hygiene (undeclared/unused/skew/transitive)
@@ -98,8 +100,17 @@ node bin/baseline.js apply /var/dev/some-repo  # align it (safe: clone only)
 5. Leaves **risky, behaviour-changing** migrations (Jest→node:test, CircleCI→GitHub Actions,
    ESLint→Biome, Dockerfile) flagged for a human, with links to the migration guides.
 
-It **stops before pushing** — push + pull-request creation need GitHub auth and are intentionally not
-built yet.
+By default it **stops before pushing**. Add `--push` to also:
+
+6. Push the `baseline/adopt-<version>` branch to the repo's GitHub `origin` (never forced).
+7. Open a pull request listing what was applied, what was left for a human (with reasons), and the
+   diff stat. The repo's CI then runs on the PR. Nothing is merged automatically.
+
+`--push` uses your own `gh` login and refuses rather than guess: on a non-GitHub origin, uncommitted
+changes to tracked files, a remote without the base branch, local commits that are not on the
+remote, or an existing remote branch with no PR. Re-running it reports the existing PR instead of
+opening a duplicate. Use `--dry-run` to run every check without pushing, and `--draft` for a draft
+PR. Step by step: `docs/runbooks/adopt-a-repo.md`.
 
 ---
 
@@ -150,8 +161,8 @@ immutable marker for the first release.
 
 **Working and tested today:**
 - The standard itself — `common/` + `node-service`/`node-library` profiles + policies.
-- The CLI: `inspect`, `plan`, `audit`, `discover`, `deps`, and local `apply` (110 tests, lint clean,
-  CI green on `main`).
+- The CLI: `inspect`, `plan`, `audit`, `discover`, `deps`, and `apply`, including `apply --push`
+  (pushes the branch and opens the PR) (148 tests, lint clean, CI green on `main`).
 - The Husky hooks work end to end: `apply` provisions the hook files, the staged-file helper, **and**
   the `precommit`/`prepush` npm scripts they call (a prerequisite-gated `package.json` merge; it
   refuses rather than break a repo still on Husky 4 or without Biome). See
@@ -159,14 +170,19 @@ immutable marker for the first release.
 - The `node-library` release workflow: tag + GitHub Release, with **opt-in** npm publish (only when
   the `NPM_TOKEN` secret is set).
 - All three shared libraries live in the `cica-platform` monorepo and are tested and lint clean.
-- Proven against real repos: `apply` has been run on `cica-logger` and `cica-apply-web` (throwaway
-  clones; the source repos are never touched), and an adoption report exists for
-  `cica-apply-data-capture-service`.
+- Proven end to end on a real GitHub repo: `apply --push` adopted `project-baseline-sandbox` and
+  opened a PR whose CI passed. In a fresh clone of that branch:
+  - `npm ci` installed Husky;
+  - the pre-commit hook auto-formatted a file, rejected a partially staged one and blocked a staged
+    private key;
+  - the pre-push gate passed.
+- `apply` has also been run on `cica-logger` and `cica-apply-web` (throwaway clones; the source
+  repos are never touched), and an adoption report exists for `cica-apply-data-capture-service`.
 
 **Not yet built (and why):**
-- **Push + PR creation** (`validate`) — needs GitHub credentials + an auth decision (GitHub App vs
-  token). Today `apply` stops after a local commit.
-- **`sync`** (propagate standard changes to all repos) — needs fleet orchestration / auth.
+- **`sync`** (propagate standard changes to all repos) — needs fleet orchestration, plus an auth
+  decision for running unattended across repos (GitHub App vs token). `apply --push` deliberately
+  uses the operator's own `gh` login, one repo at a time.
 - **`create`** (polished new-repo generator) — needs a Copier-vs-Projen decision; `apply` + profiles
   already cover most of it.
 - **`github-action` and `legacy` profiles, and governance settings** — not started.

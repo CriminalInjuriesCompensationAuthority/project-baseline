@@ -109,15 +109,19 @@ Extract real content from `cica-review-case-documents` as the canonical source f
     including the tracker-aligned statuses (Circle removed, Dependabot updated, etc.).
   - _Requirements: 4.1, 4.2, 9.2, 9.4_
 
-- [ ] 11. Implement the adoption layer — Apply + Validate
+- [x] 11. Implement the adoption layer — Apply + Validate
   - `apply`: write changes to a `baseline/adopt-<version>` branch only; write metadata; leave `manual`
     items untouched and list them in the PR body.
   - `validate`: push branch, open PR with the report embedded, trigger CI.
   - _Requirements: 4.3, 4.4, 4.5, 4.6, 4.7_
-  - Status: **Partial.** `apply` is built and verified: it works on a throwaway clone, commits to
-    `baseline/adopt-<version>`, writes metadata, and lists manual items with reasons. **`validate`
-    (push + open PR + trigger CI) is not built**; it needs a GitHub-auth decision (GitHub App vs
-    PAT).
+  - Status: done, as `baseline apply --push` (`tooling/src/publish.js`), with `--dry-run` and
+    `--draft`. It pushes the branch, opens a PR whose body lists what was applied, what was left for a
+    human (with reasons) and the diff stat, and CI then runs on the PR. Verified end to end against
+    `project-baseline-sandbox` (PR #1: CI green; a second run reports the existing PR rather than
+    duplicating). It runs with the operator's own `gh` login; unattended fleet auth (GitHub App vs
+    PAT) is a decision for `sync` (task 13), not this task. Safety rails: never force-pushes, refuses
+    on a non-GitHub origin, uncommitted tracked changes, a missing remote base branch, unpushed local
+    commits, or an existing remote branch without a PR.
 
 - [ ] 12. Run the full POC cycle against real repos
   - Create a new `node-service` repo.
@@ -125,10 +129,18 @@ Extract real content from `cica-review-case-documents` as the canonical source f
   - Change a central standard; show both repos receive **equivalent** update PRs.
   - Record results; if safe retrofit fails, revisit the generator choice before continuing.
   - _Requirements: 10.1, 10.2, 10.4, 10.5, 5.5_
-  - Status: **Partial.** An adoption report exists for `cica-apply-data-capture-service`
-    (`docs/adoption-reports/`), and `apply` has been run on `cica-logger` and `cica-apply-web`
-    (throwaway clones, source repos untouched). **No new repo was created and no "change a central
-    standard, both repos receive equivalent PRs" cycle was run**, since that needs `validate`/`sync`.
+  - Status: **Partial.** Done so far:
+    - a new repo (`project-baseline-sandbox`) was adopted end to end with `apply --push`, and its CI
+      and hooks work (see task 11);
+    - an adoption report exists for `cica-apply-data-capture-service` (`docs/adoption-reports/`);
+    - `apply` has been run on `cica-logger` and `cica-apply-web` (throwaway clones, sources
+      untouched).
+
+    **Not yet done:**
+    - the sandbox was a `node-library` repo, not `node-service`;
+    - `cica-apply-data-capture-service` has not had `--push` run against it;
+    - no "change a central standard, both repos receive equivalent PRs" cycle was run, since that
+      needs `sync` (task 14).
 
 ---
 
