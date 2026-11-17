@@ -32,8 +32,12 @@ helper script. The reference implementation (`ministryofjustice/cica-review-case
 | `scripts/hooks/precommit-staged.js` | `common/scripts/hooks/precommit-staged.js` (create / replace) |
 | the npm scripts | `common/package-scripts.json` merged into `package.json` (`json-scripts`) |
 
-The scripts provisioned are: `lint:check`, `audit:ci`, `precommit:secrets`, `precommit:staged`,
-`precommit`, `prepush:secrets`, `prepush`, `prepare`.
+The scripts provisioned are: `lint`, `lint:check`, `lint:fix`, `format`, `audit:ci`,
+`precommit:secrets`, `precommit:staged`, `precommit`, `prepush:secrets`, `prepush`, `prepare`. The
+lint/format/audit ones are included because the hooks, the central CI workflow
+(`npm run lint`, `npm run audit:ci`) and `AGENTS.md` all call them; a test
+(`tooling/src/templates.test.js`) fails if any of those callers references a script the fragment
+does not provide.
 
 ## The `json-scripts` merge strategy
 

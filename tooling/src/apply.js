@@ -1,7 +1,42 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { resolvedFileEntries } from './config.js';
 import { mergePackageScripts } from './packageScripts.js';
+
+/**
+ * Builds the `{{PLACEHOLDER}}` substitution map applied to baseline templates.
+ *
+ * Every placeholder a template uses must be supplied here (a test enforces this), so a template can
+ * never be written out with an unresolved `{{TOKEN}}`.
+ *
+ * @param {object} args
+ * @param {string} args.repoRoot Absolute path of the target repo (its basename becomes REPO).
+ * @param {{ config: object }} args.baseline Loaded baseline.
+ * @param {string} args.org GitHub org of the target repo.
+ * @param {string} args.defaultBranch The target repo's default branch (used by CI triggers).
+ * @param {Date} [args.now] Clock, injectable for tests.
+ * @returns {Record<string, string>}
+ */
+export function buildVars({ repoRoot, baseline, org, defaultBranch, now = new Date() }) {
+    const { config } = baseline;
+    // CODEOWNERS owners are org-aware: GitHub honours only teams in the repo's own org.
+    const owners = config.codeowners?.[org] ?? [];
+    return {
+        ORG: org,
+        REPO: basename(repoRoot),
+        OWNERS: owners.join(' '),
+        YEAR: String(now.getFullYear()),
+        ADOPTED_AT: now.toISOString().slice(0, 10),
+        BASELINE_VERSION: config.baselineVersion ?? '0.0.0',
+        BASELINE_REF: config.ciReusableRef ?? 'v1',
+        DEFAULT_BRANCH: defaultBranch,
+        CI_WORKDIR: '.',
+        PORT: '5000',
+        START_CMD: './bin/www',
+        MAIN_ENTRY: 'src/index.js',
+        BUILD_CMD: 'node ./src/build.js'
+    };
+}
 
 /**
  * Substitutes {{PLACEHOLDER}} tokens in template content.

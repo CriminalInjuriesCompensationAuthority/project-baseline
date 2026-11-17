@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { basename, resolve } from 'node:path';
-import { computeChanges } from '../src/apply.js';
+import { buildVars, computeChanges } from '../src/apply.js';
 import { auditRepo, renderAudit } from '../src/audit.js';
 import { loadBaseline } from '../src/config.js';
 import { hygieneForRepo, renderDeps, versionSkew } from '../src/deps.js';
@@ -137,23 +137,14 @@ function main() {
     if (command === 'apply') {
         const planned = plan(inspection);
         const baselineVersion = baseline.config.baselineVersion ?? '0.0.0';
-        // Resolve CODEOWNERS owners from the org-aware codeowners map (GitHub honours
-        // only teams in the repo's own org). Falls back to empty if the org is unmapped.
-        const owners = baseline.config.codeowners?.[org] ?? [];
-        const vars = {
-            ORG: org,
-            REPO: basename(repoRoot),
-            OWNERS: owners.join(' '),
-            YEAR: String(new Date().getFullYear()),
-            ADOPTED_AT: new Date().toISOString().slice(0, 10),
-            BASELINE_VERSION: baselineVersion,
-            BASELINE_REF: baseline.config.ciReusableRef ?? 'v1',
-            CI_WORKDIR: '.',
-            PORT: '5000',
-            START_CMD: './bin/www',
-            MAIN_ENTRY: 'src/index.js',
-            BUILD_CMD: 'node ./src/build.js'
-        };
+        // Placeholder values for templates. DEFAULT_BRANCH is read from the target repo so the CI
+        // caller triggers on the branch the repo actually uses (master vs main).
+        const vars = buildVars({
+            repoRoot,
+            baseline,
+            org,
+            defaultBranch: defaultBranch(repoRoot)
+        });
 
         const { changes, skippedManual, demotedToManual, demotedReasons } = computeChanges({
             planned,
