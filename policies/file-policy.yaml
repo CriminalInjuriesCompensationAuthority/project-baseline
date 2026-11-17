@@ -85,8 +85,34 @@ files:
       Helper invoked by the `precommit:staged` npm script (called from .husky/pre-commit). Operates
       on staged files only: aborts if a staged file has unstaged changes, runs Biome check --write on
       staged .js/.json (excluding package-lock.json), re-stages fixes, then runs tests. Mechanical and
-      baseline-owned, so safe to replace. NOTE: the hooks call `npm run precommit`/`prepush`, which
-      must exist in the repo's package.json — see the package.json scripts gap in docs/metadata.md.
+      baseline-owned, so safe to replace. The scripts it is wired through are provisioned by the
+      package.json entry below.
+
+  # package.json is repo-specific, so it is never created or replaced wholesale. This entry only
+  # ensures the npm scripts the Husky hooks call (`precommit`, `prepush`, ...) EXIST.
+  - path: package.json
+    source: common/package-scripts.json     # a fragment: { "scripts": { ... } }
+    whenAbsent: manual                      # never invent a package.json
+    whenPresent: merge
+    merge:
+      strategy: json-scripts
+      # Minimum MAJOR versions that must ALREADY be dependencies before scripts are added. Without
+      # them the scripts break the repo: `prepare: husky` makes `npm install` fail if husky is absent
+      # or v4 (no `husky` binary), and `precommit:staged` calls `biome`. The baseline cannot add the
+      # dependencies itself (apply runs no `npm install`, so the lockfile would go stale and break
+      # `npm ci`), so when unmet the file is demoted to manual with the reason shown in the report.
+      requiresDevDependencies:
+        husky: 9
+        "@biomejs/biome": 2
+      note: >
+        Adds any baseline script that is missing, matched by NAME. Existing scripts are NEVER
+        overwritten (values such as `prepush` legitimately differ per repo). Indent and trailing
+        newline are preserved; other keys are untouched. Invalid JSON, a non-object `scripts`, or
+        unmet prerequisites are demoted to manual. Not provisioned here: the repo must define its own
+        `test` script (it is repo-specific).
+    note: >
+      Provisions the hook scripts so .husky/pre-commit (`npm run precommit`) and .husky/pre-push
+      (`npm run prepush`) have something to call. See docs/migrations/husky-hook-scripts.md.
 
   - path: .npmrc
     source: common/.npmrc

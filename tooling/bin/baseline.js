@@ -155,7 +155,7 @@ function main() {
             BUILD_CMD: 'node ./src/build.js'
         };
 
-        const { changes, skippedManual, demotedToManual } = computeChanges({
+        const { changes, skippedManual, demotedToManual, demotedReasons } = computeChanges({
             planned,
             baseline,
             repoRoot,
@@ -188,11 +188,15 @@ function main() {
             `- Files changed: ${result.filesChanged}`,
             '',
             '## Auto-applied',
-            ...changes.map((c) => `- ${c.action}: \`${c.path}\``),
+            ...changes.map(
+                (c) => `- ${c.action}: \`${c.path}\`${c.detail ? ` (${c.detail})` : ''}`
+            ),
             '',
             '## Left for manual review',
             ...skippedManual.map((p) => `- \`${p}\``),
-            ...demotedToManual.map((p) => `- \`${p}\` (no baseline source / unmergeable)`),
+            ...demotedToManual.map(
+                (p) => `- \`${p}\` (${demotedReasons[p] ?? 'no baseline source / unmergeable'})`
+            ),
             '',
             '## Diff stat',
             '```',
@@ -204,7 +208,7 @@ function main() {
 
         process.stdout.write(
             json
-                ? `${JSON.stringify({ clone, branch, result, changes: changes.map((c) => ({ path: c.path, action: c.action })), skippedManual, demotedToManual }, null, 2)}\n`
+                ? `${JSON.stringify({ clone, branch, result, changes: changes.map((c) => ({ path: c.path, action: c.action })), skippedManual, demotedToManual, demotedReasons }, null, 2)}\n`
                 : `${report}\n`
         );
         return;

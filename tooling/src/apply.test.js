@@ -161,6 +161,93 @@ describe('computeChanges', () => {
         assert.ok(result.changes[0].content.includes('coverage/'));
     });
 
+    describe('json-scripts merge', () => {
+        const entry = {
+            path: 'package.json',
+            source: 'common/package-scripts.json',
+            merge: { strategy: 'json-scripts' }
+        };
+        const plannedMerge = { files: [{ path: 'package.json', action: 'merge' }] };
+
+        it('adds missing scripts to package.json and records what was added', () => {
+            baseFile(
+                'common/package-scripts.json',
+                JSON.stringify({ scripts: { precommit: 'p', prepare: 'husky' } })
+            );
+            repoFile('package.json', '{\n    "scripts": {\n        "test": "t"\n    }\n}\n');
+            const result = computeChanges({
+                planned: plannedMerge,
+                baseline: baseline([entry]),
+                repoRoot: repo,
+                vars: {}
+            });
+            assert.equal(result.changes.length, 1);
+            const [change] = result.changes;
+            assert.equal(change.path, 'package.json');
+            assert.equal(change.action, 'merge');
+            assert.equal(change.detail, 'added scripts: precommit, prepare');
+            assert.deepEqual(Object.keys(JSON.parse(change.content).scripts), [
+                'test',
+                'precommit',
+                'prepare'
+            ]);
+        });
+
+        it('produces no change when every baseline script already exists', () => {
+            baseFile(
+                'common/package-scripts.json',
+                JSON.stringify({ scripts: { precommit: 'p' } })
+            );
+            repoFile('package.json', '{"scripts":{"precommit":"custom"}}');
+            const result = computeChanges({
+                planned: plannedMerge,
+                baseline: baseline([entry]),
+                repoRoot: repo,
+                vars: {}
+            });
+            assert.equal(result.changes.length, 0);
+            assert.deepEqual(result.demotedToManual, []);
+        });
+
+        it('demotes to manual with a reason when a prerequisite (husky 9) is unmet', () => {
+            baseFile(
+                'common/package-scripts.json',
+                JSON.stringify({ scripts: { prepare: 'husky' } })
+            );
+            repoFile('package.json', '{"devDependencies":{"husky":"^4.0.3"}}');
+            const result = computeChanges({
+                planned: plannedMerge,
+                baseline: baseline([
+                    {
+                        ...entry,
+                        merge: { strategy: 'json-scripts', requiresDevDependencies: { husky: 9 } }
+                    }
+                ]),
+                repoRoot: repo,
+                vars: {}
+            });
+            assert.deepEqual(result.demotedToManual, ['package.json']);
+            assert.equal(result.changes.length, 0);
+            assert.match(result.demotedReasons['package.json'], /husky/);
+        });
+
+        it('demotes to manual when package.json is not valid JSON', () => {
+            baseFile(
+                'common/package-scripts.json',
+                JSON.stringify({ scripts: { precommit: 'p' } })
+            );
+            repoFile('package.json', '{ broken');
+            const result = computeChanges({
+                planned: plannedMerge,
+                baseline: baseline([entry]),
+                repoRoot: repo,
+                vars: {}
+            });
+            assert.deepEqual(result.demotedToManual, ['package.json']);
+            assert.equal(result.changes.length, 0);
+        });
+    });
+
     it('demotes marker-block merge to manual when repo file lacks the marker', () => {
         baseFile('common/AGENTS.md', 'shared\n<!-- m -->\n');
         repoFile('AGENTS.md', 'no marker');

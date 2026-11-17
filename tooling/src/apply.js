@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvedFileEntries } from './config.js';
+import { mergePackageScripts } from './packageScripts.js';
 
 /**
  * Substitutes {{PLACEHOLDER}} tokens in template content.
@@ -87,9 +88,10 @@ function readBaselineSource(baselineRoot, entry) {
  * @param {string} args.profile Active profile (selects per-profile file sources).
  * @param {Record<string,string>} args.vars Placeholder substitutions.
  * @returns {{
- *   changes: Array<{ path: string, action: string, content: string }>,
+ *   changes: Array<{ path: string, action: string, content: string, detail?: string }>,
  *   skippedManual: string[],
- *   demotedToManual: string[]
+ *   demotedToManual: string[],
+ *   demotedReasons: Record<string, string>
  * }}
  */
 export function computeChanges({ planned, baseline, repoRoot, profile, vars }) {
@@ -101,6 +103,8 @@ export function computeChanges({ planned, baseline, repoRoot, profile, vars }) {
     const changes = [];
     const skippedManual = [];
     const demotedToManual = [];
+    /** @type {Record<string, string>} Why a path was demoted to manual, where known. */
+    const demotedReasons = {};
 
     for (const file of planned.files) {
         const { path, action } = file;
@@ -145,6 +149,21 @@ export function computeChanges({ planned, baseline, repoRoot, profile, vars }) {
                 } else {
                     changes.push({ path, action, content: result.content });
                 }
+            } else if (strategy === 'json-scripts') {
+                const result = mergePackageScripts(existing, source, {
+                    requires: entry.merge.requiresDevDependencies
+                });
+                if (result.manual) {
+                    demotedToManual.push(path);
+                    demotedReasons[path] = result.reason;
+                } else if (result.added.length > 0) {
+                    changes.push({
+                        path,
+                        action,
+                        content: result.content,
+                        detail: `added scripts: ${result.added.join(', ')}`
+                    });
+                }
             } else {
                 // Unknown merge strategy -> safer to defer to a human.
                 demotedToManual.push(path);
@@ -152,5 +171,5 @@ export function computeChanges({ planned, baseline, repoRoot, profile, vars }) {
         }
     }
 
-    return { changes, skippedManual, demotedToManual };
+    return { changes, skippedManual, demotedToManual, demotedReasons };
 }

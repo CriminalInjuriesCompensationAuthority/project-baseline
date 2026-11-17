@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolvedFileEntries } from './config.js';
+import { missingScripts } from './packageScripts.js';
 
 /**
  * File presence/divergence states.
@@ -61,6 +62,36 @@ export function fileState(repoRoot, baselineRoot, entry) {
     return normalise(repoContent) === normalise(baselineContent)
         ? 'present-identical'
         : 'present-divergent';
+}
+
+/**
+ * Determines the state of a file managed by the `json-scripts` merge strategy (package.json).
+ *
+ * Whole-file comparison is meaningless for package.json (it is unique per repo), so state is based
+ * on whether every script NAME in the baseline fragment exists in the repo's `scripts`. Values are
+ * deliberately not compared: they are legitimately repo-specific.
+ *
+ * @param {string} repoRoot Absolute repo path.
+ * @param {string} baselineRoot Absolute project-baseline path.
+ * @param {object} entry file-policy entry ({ path, source }).
+ * @returns {FileState} absent (no package.json); present-identical (all script names exist);
+ *   present-divergent (some missing); present-unknown (unparseable JSON or no fragment).
+ */
+export function packageScriptsState(repoRoot, baselineRoot, entry) {
+    const repoRaw = readRepoFile(repoRoot, entry.path);
+    if (repoRaw === null) {
+        return 'absent';
+    }
+    const fragmentRaw = entry.source ? readRepoFile(baselineRoot, entry.source) : null;
+    if (fragmentRaw === null) {
+        return 'present-unknown';
+    }
+    try {
+        const missing = missingScripts(JSON.parse(repoRaw), JSON.parse(fragmentRaw));
+        return missing.length === 0 ? 'present-identical' : 'present-divergent';
+    } catch {
+        return 'present-unknown';
+    }
 }
 
 /**
@@ -145,7 +176,11 @@ export function inspect({ repoRoot, profile, baseline }) {
     const entries = resolvedFileEntries(filePolicy, profile);
     const files = entries.map((entry) => ({
         path: entry.path,
-        state: fileState(repoRoot, baselineRoot, entry),
+        // json-scripts entries (package.json) are judged by script presence, not whole-file equality.
+        state:
+            entry.merge?.strategy === 'json-scripts'
+                ? packageScriptsState(repoRoot, baselineRoot, entry)
+                : fileState(repoRoot, baselineRoot, entry),
         policy: entry
     }));
 

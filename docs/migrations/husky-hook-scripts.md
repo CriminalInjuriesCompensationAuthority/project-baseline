@@ -1,57 +1,83 @@
-# Provisioning gap: husky hook scripts in `package.json`
+# Husky hook scripts in `package.json`
 
-Status: **partially provisioned.** This note records what the baseline now ships for git hooks, the
-remaining gap, and the recommended way to close it.
+Status: **provisioned** (via the `json-scripts` merge strategy). This note explains what the baseline
+ships for git hooks, how the `package.json` scripts are added safely, and the known limits.
 
-## What the hooks need
+## How the hooks fit together
 
 The baseline ships two Husky hooks under `common/.husky/`:
 
 - `pre-commit` → runs `npm run precommit`
 - `pre-push` → runs `npm run prepush`
 
-They are **thin wrappers**: the real behaviour lives in npm scripts in the consuming repo's
-`package.json`. The reference implementation (`ministryofjustice/cica-review-case-documents`) defines:
+They are **thin wrappers**: the behaviour lives in npm scripts in the repo's `package.json`, plus a
+helper script. The reference implementation (`ministryofjustice/cica-review-case-documents`) and
+`cica-platform` both use this shape:
 
-```jsonc
-"precommit:secrets": "command -v gitleaks >/dev/null 2>&1 || { echo 'gitleaks not found ...'; exit 1; }; gitleaks protect --staged --redact --verbose --config .gitleaks.toml",
-"precommit:staged":  "node ./scripts/hooks/precommit-staged.js",
-"precommit":         "npm run precommit:secrets && npm run precommit:staged",
-"prepush:secrets":   "command -v gitleaks >/dev/null 2>&1 || { echo 'gitleaks not found ...'; exit 1; }; gitleaks detect --redact --verbose --config .gitleaks.toml",
-"prepush":           "npm test && npm run lint:check && npm run audit:ci && npm run prepush:secrets"
-```
+| Hook | Runs | Which does |
+| --- | --- | --- |
+| `pre-commit` | `precommit` | `precommit:secrets` (gitleaks on **staged** changes) then `precommit:staged` |
+| `pre-push` | `prepush` | `npm test`, `lint:check`, `audit:ci`, `prepush:secrets` (gitleaks on full history) |
 
-and the helper `scripts/hooks/precommit-staged.js`.
+`precommit:staged` runs `scripts/hooks/precommit-staged.js`, which works on staged files only: it
+**aborts if a staged file also has unstaged changes**, runs Biome `check --write` on staged
+`.js`/`.json` (skipping `package-lock.json`), re-stages the fixes, then runs the tests. Both
+`*:secrets` scripts **fail loudly if gitleaks is not installed** rather than silently skipping.
 
-## What the baseline now provisions
+## What the baseline provisions
 
-- `common/.husky/pre-commit`, `common/.husky/pre-push` — the hook files (already shipped).
-- `common/scripts/hooks/precommit-staged.js` — the staged-file helper (added; provisioned via the
-  `scripts/hooks/precommit-staged.js` entry in `policies/file-policy.yaml`, create/replace).
+| Artifact | How |
+| --- | --- |
+| `.husky/pre-commit`, `.husky/pre-push` | `common/.husky/*` (create / replace) |
+| `scripts/hooks/precommit-staged.js` | `common/scripts/hooks/precommit-staged.js` (create / replace) |
+| the npm scripts | `common/package-scripts.json` merged into `package.json` (`json-scripts`) |
 
-## The remaining gap: the `package.json` scripts
+The scripts provisioned are: `lint:check`, `audit:ci`, `precommit:secrets`, `precommit:staged`,
+`precommit`, `prepush:secrets`, `prepush`, `prepare`.
 
-The `precommit` / `prepush` / `*:secrets` **scripts themselves are not provisioned.** `package.json`
-is deliberately absent from `file-policy.yaml` because it is repo-specific (deps + app scripts) and
-cannot be created or replaced wholesale. So after adoption today, a repo gets a `pre-commit` hook
-that calls `npm run precommit`, **a script that may not exist** — the hook then errors on first use.
+## The `json-scripts` merge strategy
 
-The file-policy model (whole-file `create`/`replace`/`merge`) has no strategy for **merging specific
-keys into an existing JSON file**, which is what `package.json` scripts need.
+`package.json` is repo-specific, so it is never created or replaced wholesale. The `json-scripts`
+strategy (`tooling/src/packageScripts.js`) only ensures the scripts above **exist**:
 
-### Recommended approach (needs a spec task)
+- Matching is by script **name**. An existing script is **never overwritten**, because values are
+  legitimately repo-specific (each repo's `prepush` composes its own steps).
+- Existing keys keep their order; additions are appended after them.
+- Indent style and trailing newline are preserved; every other key is untouched.
+- `package.json` is never created if absent (`whenAbsent: manual`).
+- Invalid JSON, or a non-object `scripts`, is demoted to **manual**.
 
-Add a targeted `package.json` script-merge capability:
+### Prerequisites (the merge refuses without them)
 
-1. A new merge strategy, e.g. `json-scripts-merge`, in `policies/file-policy.yaml` for `package.json`,
-   whose source is a small fragment listing the canonical hook scripts.
-2. An implementation in `tooling/src/apply.js` that reads the target `package.json`, adds any missing
-   hook scripts **without overwriting existing ones that differ** (report a conflict as `manual`
-   instead), and preserves formatting / key order as much as practical.
-3. Tests mirroring the existing merge-strategy tests (`apply.test.js`).
-4. The scripts reference `npm run lint:check`, `npm run audit:ci`, and `npm test`, which the standard
-   already assumes — so the merge only needs to add the hook-specific scripts, not the whole set.
+The scripts only work if their tooling is installed, so the merge is **gated** on
+`policies/file-policy.yaml` → `requiresDevDependencies`:
 
-Until that lands, adopting repos must add the hook scripts to `package.json` by hand (copy the block
-above). The worked, verified reference is `cica-platform` (`packages`-root `package.json` +
-`scripts/hooks/precommit-staged.js`), which implements exactly this setup.
+- `husky` major **>= 9**: `prepare: husky` makes `npm install` **fail** if husky is absent or is v4
+  (v4 has no `husky` binary).
+- `@biomejs/biome` major **>= 2**: `precommit:staged` calls `biome`.
+
+If either is unmet, `package.json` is demoted to manual and the `apply` report says why, e.g.
+`husky "^4.3.8" does not satisfy major >= 9; @biomejs/biome (major >= 2) is not a dependency`. The
+baseline deliberately does **not** add the dependencies itself: `apply` runs no `npm install`, so the
+lockfile would go stale and break `npm ci`. Do the Husky 4 → 9 migration
+(`docs/migrations/`) first, then re-run `apply`.
+
+## Known limits
+
+- **An existing `prepush` is kept as-is.** A repo whose `prepush` lacks `prepush:secrets` (for
+  example `cica-logger` at the time of writing) keeps it, so the full-history secret scan will not run
+  on push until the line is added by hand. This is the trade-off of never overwriting repo-specific
+  values; add `&& npm run prepush:secrets` to adopt the standard.
+- **`test` is not provisioned.** It is repo-specific (`c8 node --test`, `jest`, ...); `prepush` and
+  `precommit:staged` both call `npm test`, so the repo must define it.
+- **`plan` is advisory for this file.** `plan` shows `merge` whenever scripts are missing; whether
+  prerequisites are met is only evaluated by `apply`, which reports the demotion.
+- On a repo that is still on Husky 4, `apply` still creates `.husky/*` and the helper. They are inert
+  until Husky 9 is installed, so this is harmless.
+- The merge rewrites `package.json` using `JSON.stringify` with the detected indent (the same style
+  npm writes), so unusual hand-formatting, such as inline arrays, may be normalised.
+
+## Reference implementation
+
+`cica-platform` (root `package.json` + `scripts/hooks/precommit-staged.js`) is byte-identical to the
+baseline: `baseline plan` reports every hook file and `package.json` as `leave`.

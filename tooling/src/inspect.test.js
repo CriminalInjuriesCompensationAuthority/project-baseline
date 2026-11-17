@@ -3,7 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { detectorContext, fileState, MIGRATION_DETECTORS, readPackageJson } from './inspect.js';
+import {
+    detectorContext,
+    fileState,
+    MIGRATION_DETECTORS,
+    packageScriptsState,
+    readPackageJson
+} from './inspect.js';
 
 /** Creates an isolated temp dir and returns helpers to populate it. */
 function makeFixture() {
@@ -61,6 +67,65 @@ describe('fileState', () => {
     it('returns present-unknown when the entry has no source', () => {
         fx.file('x', 'y');
         assert.equal(fileState(fx.dir, baseline.dir, { path: 'x' }), 'present-unknown');
+    });
+});
+
+describe('packageScriptsState', () => {
+    let fx;
+    let baseline;
+    beforeEach(() => {
+        fx = makeFixture();
+        baseline = makeFixture();
+        baseline.file(
+            'common/package-scripts.json',
+            JSON.stringify({ scripts: { precommit: 'a', prepush: 'b', prepare: 'husky' } })
+        );
+    });
+    afterEach(() => {
+        fx.cleanup();
+        baseline.cleanup();
+    });
+
+    const entry = { path: 'package.json', source: 'common/package-scripts.json' };
+
+    it('returns absent when the repo has no package.json', () => {
+        assert.equal(packageScriptsState(fx.dir, baseline.dir, entry), 'absent');
+    });
+
+    it('returns present-divergent when any baseline script is missing', () => {
+        fx.file('package.json', JSON.stringify({ scripts: { precommit: 'a' } }));
+        assert.equal(packageScriptsState(fx.dir, baseline.dir, entry), 'present-divergent');
+    });
+
+    it('returns present-divergent when the repo has no scripts at all', () => {
+        fx.file('package.json', '{"name":"x"}');
+        assert.equal(packageScriptsState(fx.dir, baseline.dir, entry), 'present-divergent');
+    });
+
+    it('returns present-identical when every script name exists, whatever its value', () => {
+        fx.file(
+            'package.json',
+            JSON.stringify({
+                scripts: { precommit: 'custom', prepush: 'also custom', prepare: 'husky install' }
+            })
+        );
+        assert.equal(packageScriptsState(fx.dir, baseline.dir, entry), 'present-identical');
+    });
+
+    it('returns present-unknown for an invalid package.json', () => {
+        fx.file('package.json', '{ not json');
+        assert.equal(packageScriptsState(fx.dir, baseline.dir, entry), 'present-unknown');
+    });
+
+    it('returns present-unknown when the baseline fragment is missing', () => {
+        fx.file('package.json', '{"scripts":{}}');
+        assert.equal(
+            packageScriptsState(fx.dir, baseline.dir, {
+                path: 'package.json',
+                source: 'nope.json'
+            }),
+            'present-unknown'
+        );
     });
 });
 
