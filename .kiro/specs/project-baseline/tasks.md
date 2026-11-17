@@ -8,29 +8,42 @@ until the POC succeeds.
 Biome, node:test + c8, ESM, Husky v9, GitHub Actions, Dependabot, `npm audit` gate + gitleaks.
 **Scope:** two GitHub orgs — `ministryofjustice` and `CriminalInjuriesCompensationAuthority`.
 
+> **Status key (last verified 2026-11-11).** `[x]` = built and verified. `[ ]` = not done.
+> A `Status:` line under an unticked task records what already exists and what is missing, so a
+> `[ ]` with a `Partial` note is partly built rather than untouched.
+
 ---
 
 ## Phase 0 — Foundations
 
-- [ ] 1. Scaffold the central `project-baseline` repository structure
+- [x] 1. Scaffold the central `project-baseline` repository structure
   - Create `common/`, `profiles/`, `policies/`, `workflows/`, `dependabot/`, `security/`, `tooling/`.
   - Add `baseline.config.yaml` with an initial version (e.g. `0.1.0`), an empty profile registry, and
     the two-org list.
   - Add a top-level README describing the three lifecycle operations (create/adopt/maintain).
   - _Requirements: 1.1, 1.2_
+  - Status: done, with two deliberate deviations: reusable CI lives in `.github/workflows/`
+    (not a top-level `workflows/`), and security config is `policies/security.yaml` +
+    `common/.gitleaks.toml` (not a top-level `security/`).
 
 - [ ] 2. Define the baseline metadata contract
   - Specify the `.project-baseline.yaml` schema (`baselineVersion`, `profile`, `org`, `adoptedAt`,
     `managed`) and document it.
   - Write a small validator that reads/validates the metadata file.
   - _Requirements: 1.2, 3.3, 4.6_
+  - Status: **Partial.** Schema is documented (`docs/metadata.md`) and `apply` writes the file.
+    **No validator exists yet.**
 
-- [ ] 3. Author `policies/file-policy.yaml`
+- [x] 3. Author `policies/file-policy.yaml`
   - Enumerate each standard file and its adopt behaviour: `create | replace | merge | manual | leave`.
   - Classify invasive migrations (Jest→node:test, CommonJS→ESM, CircleCI→GHA, multi-stage Docker) as
     `manual`; mechanical files (Dependabot config, gitleaks, editorconfig) as `create`/`replace`.
   - Define the `package.json` (scripts/deps) and `.gitignore` merge rules explicitly.
   - _Requirements: 4.2, 4.5, 7.5_
+  - Status: done. `package.json` **scripts** are merged by name via the `json-scripts` strategy
+    (prerequisite-gated; see `docs/migrations/husky-hook-scripts.md`). **Dependencies are
+    deliberately not merged**: `apply` runs no `npm install`, so a changed manifest would leave the
+    lockfile stale and break `npm ci`.
 
 ---
 
@@ -42,28 +55,39 @@ Extract real content from `cica-review-case-documents` as the canonical source f
   - Add `.editorconfig`, `.gitignore`, `.gitattributes`, `biome.json`, `.c8rc.json`,
     Husky v9 hooks, and `README.scaffold.md`.
   - _Requirements: 2.3_
+  - Status: **Partial.** Everything listed exists (plus `.npmrc`, `LICENSE`, `SECURITY.md`,
+    `AGENTS.md`, `.gitleaks.toml`, CODEOWNERS, the staged-hook helper and the hook-scripts
+    fragment) **except `README.scaffold.md`**.
 
 - [ ] 5. Build the `node-service` profile
   - Multi-stage `Dockerfile` using the MoJ Cloud Platform base image, `kube_deploy/` scaffold,
     ESM `"type": "module"`, node:test + c8 test setup.
   - Register it in `baseline.config.yaml`.
   - _Requirements: 2.1, 2.4_
+  - Status: **Partial.** Registered; multi-stage `Dockerfile`, `.dockerignore`, workflows and an
+    `app.js` / `bin/www` scaffold exist. **No `kube_deploy/` scaffold.**
 
 - [ ] 6. Add the reusable CI workflow (GitHub Actions)
   - Author `workflows/ci.yml` as a reusable workflow: Biome check, node:test + c8, `npm audit` gate,
     gitleaks scan, build.
   - Add a thin caller workflow template to the `node-service` profile referencing it.
   - _Requirements: 7.1, 7.2, 7.3, 11.1_
+  - Status: **Partial.** `.github/workflows/node-ci.yml` runs Biome, node:test + c8 and the
+    `npm audit` gate, with a shared thin caller (`profiles/_shared/ci-caller.yml`). **It does not
+    run a gitleaks scan or a build step.** (gitleaks runs in the Husky hooks and the profile
+    `tests.yml`.)
 
-- [ ] 7. Add the standard Dependabot config and version policy
+- [x] 7. Add the standard Dependabot config and version policy
   - Author `dependabot/default.yml` and `policies/versions.json` (Node LTS, `engines` floor).
   - Include the `dependabot.yml` in the `node-service` profile as a provisioned file.
   - _Requirements: 6.1, 6.2, 6.3_
 
-- [ ] 8. Add the security baseline
+- [x] 8. Add the security baseline
   - Author `security/gitleaks.toml` and `policies/security.yaml` (audit level default `high`).
   - Wire `audit:ci` script + gitleaks into the profile's scripts and Husky hooks.
   - _Requirements: 11.1, 11.2, 11.4_
+  - Status: done. `audit:ci`, `precommit:secrets` and `prepush:secrets` are provisioned into
+    `package.json` (prerequisite-gated) and called from the Husky hooks.
 
 ---
 
@@ -76,8 +100,10 @@ Extract real content from `cica-review-case-documents` as the canonical source f
   - Implement `create` for the `node-service` profile (prompts: name, profile, org, deployment option).
   - Write `.project-baseline.yaml` into the generated output.
   - _Requirements: 3.1, 3.2, 3.3, 10.3_
+  - Status: **Not started.** No generator decision and no `create` command. In practice
+    `baseline apply` already scaffolds an empty repo, so this is polish rather than a blocker.
 
-- [ ] 10. Implement the adoption layer — Inspect + Plan
+- [x] 10. Implement the adoption layer — Inspect + Plan
   - `inspect`: read-only comparison of a target repo against its profile and the reference impl.
   - `plan`: emit the adoption report classifying each item (create/replace/merge/manual/leave),
     including the tracker-aligned statuses (Circle removed, Dependabot updated, etc.).
@@ -88,6 +114,10 @@ Extract real content from `cica-review-case-documents` as the canonical source f
     items untouched and list them in the PR body.
   - `validate`: push branch, open PR with the report embedded, trigger CI.
   - _Requirements: 4.3, 4.4, 4.5, 4.6, 4.7_
+  - Status: **Partial.** `apply` is built and verified: it works on a throwaway clone, commits to
+    `baseline/adopt-<version>`, writes metadata, and lists manual items with reasons. **`validate`
+    (push + open PR + trigger CI) is not built**; it needs a GitHub-auth decision (GitHub App vs
+    PAT).
 
 - [ ] 12. Run the full POC cycle against real repos
   - Create a new `node-service` repo.
@@ -95,6 +125,10 @@ Extract real content from `cica-review-case-documents` as the canonical source f
   - Change a central standard; show both repos receive **equivalent** update PRs.
   - Record results; if safe retrofit fails, revisit the generator choice before continuing.
   - _Requirements: 10.1, 10.2, 10.4, 10.5, 5.5_
+  - Status: **Partial.** An adoption report exists for `cica-apply-data-capture-service`
+    (`docs/adoption-reports/`), and `apply` has been run on `cica-logger` and `cica-apply-web`
+    (throwaway clones, source repos untouched). **No new repo was created and no "change a central
+    standard, both repos receive equivalent PRs" cycle was run**, since that needs `validate`/`sync`.
 
 ---
 
@@ -106,35 +140,42 @@ Extract real content from `cica-review-case-documents` as the canonical source f
   - Implement managed-repo enumeration across both `ministryofjustice` and
     `CriminalInjuriesCompensationAuthority` (repos with `managed: true`).
   - _Requirements: 5.1_
+  - Status: **Not started.** Local-estate enumeration exists (`estate.js`); GitHub-side does not.
 
 - [ ] 14. Implement the sync engine
   - For each managed repo: read `org`+`profile`+`baselineVersion`, compute delta, open
     `baseline/sync-<version>` PR, bump metadata, trigger CI.
   - _Requirements: 5.1, 5.2, 5.3, 5.4, 5.5_
+  - Status: **Not started.** Depends on 11 (`validate`) and 13.
 
 - [ ] 15. Onboard Dependabot across the estate
   - Provision/align `.github/dependabot.yml` on existing repos (including previously unmanaged ones)
     via sync PRs; migrate Snyk-based repos onto the standard.
   - _Requirements: 6.2, 6.4, 6.5_
+  - Status: **Not started** (the file is provisioned by `apply`; estate rollout needs 14).
 
 ---
 
 ## Phase 4 — Remaining profiles
 
-- [ ] 16. Build the `node-library` profile
+- [x] 16. Build the `node-library` profile
   - Library files + npm/git-tag release workflow; `main`/`exports`; build step; no Dockerfile.
   - Register in config; add version policy entry. Targets e.g. `q-router`, `q-templates-application`.
   - _Requirements: 2.1, 2.3, 2.4_
+  - Status: done. The release workflow tags + creates a GitHub Release, with **opt-in** npm publish
+    (only when `NPM_TOKEN` is set; see `docs/migrations/library-release-npm-publish.md`).
 
 - [ ] 17. Build the `github-action` profile
   - `action.yml` scaffold + action build/release workflow; register in config.
   - _Requirements: 2.1, 2.3, 2.4_
+  - Status: **Not started** (listed as planned; no `profiles/github-action/`).
 
 - [ ] 18. Build the `legacy` profile and profile migration
   - Reduced transitional standard: lint/test/CI + security baseline only; keeps Jest/ESLint until
     migrated.
   - Implement explicit, reviewed profile migration (`legacy` → current profile).
   - _Requirements: 2.2, 2.5_
+  - Status: **Not started** (listed as planned; no `profiles/legacy/`).
 
 ---
 
@@ -145,8 +186,9 @@ Extract real content from `cica-review-case-documents` as the canonical source f
     permissions) per profile, per org.
   - Apply at create time; reconcile during sync.
   - _Requirements: 3.4, 8.1, 8.2, 8.3_
+  - Status: **Not started** (no `policies/governance.yaml`).
 
-- [ ] 20. Implement the audit / drift report (replaces the tracker spreadsheet)
+- [x] 20. Implement the audit / drift report (replaces the tracker spreadsheet)
   - Reuse `inspect` across all managed repos (read-only); emit the tracker-shaped per-repo table
     (Migrated, Circle removed, Repo Standards Applied, Multi-stage Docker builds, Dependabot updated,
     Deploy updated) plus an aggregate roll-up.
@@ -160,8 +202,10 @@ Extract real content from `cica-review-case-documents` as the canonical source f
     profiles. (ESM is deferred/optional — not part of rollout.)
   - Track progress via the generated drift report.
   - _Requirements: 4.*, 5.*, 7.5, 9.*_
+  - Status: **Not started.** `baseline audit` reports every in-scope repo as in progress, none
+    migrated.
 
-- [ ] 22. Implement shared-file discovery (keep the baseline evidence-driven)
+- [x] 22. Implement shared-file discovery (keep the baseline evidence-driven)
   - Compute a file-frequency matrix across all in-scope repos (local now; full GitHub estate via the
     sync fleet-enumeration later). Read-only.
   - Flag candidate baseline additions (high-frequency files absent from `common/`/profiles) and
@@ -170,7 +214,7 @@ Extract real content from `cica-review-case-documents` as the canonical source f
     sample. (This is how `.npmrc`/`LICENSE`/`SECURITY.md`/`AGENTS.md` gaps were caught.)
   - _Requirements: 9.6_
 
-- [ ] 23. Implement dependency-hygiene check (sibling of shared-file discovery)
+- [x] 23. Implement dependency-hygiene check (sibling of shared-file discovery)
   - Scan `package.json` + lockfile + source across in-scope repos (read-only) for: undeclared-but-
     referenced deps (incl. literal `node_modules/<pkg>` paths), declared-but-unused deps, cross-repo
     version skew, and transitive-path reaches.
@@ -178,5 +222,3 @@ Extract real content from `cica-review-case-documents` as the canonical source f
   - (This is how the govuk-frontend transitive-path + @ministryofjustice/frontend version skew were
     caught.)
   - _Requirements: 9.7_
-```
-

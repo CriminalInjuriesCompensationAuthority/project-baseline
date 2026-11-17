@@ -124,18 +124,30 @@ standalone, independently-versioned `@cica/*` package consumers import individua
 
 **Working and tested today:**
 - The standard itself — `common/` + `node-service`/`node-library` profiles + policies.
-- The CLI: `inspect`, `plan`, `audit`, `discover`, `deps`, and local `apply` (72 tests, lint clean).
-- All three shared libraries: `@cica/logger` (27 tests), `@cica/express-baseline` (19 tests),
-  `@cica/nunjucks-govuk` (10 tests) — each lint clean.
-- Proven against the real `cica-apply-data-capture-service` and the local estate.
+- The CLI: `inspect`, `plan`, `audit`, `discover`, `deps`, and local `apply` (110 tests, lint clean,
+  CI green on `main`).
+- The Husky hooks work end to end: `apply` provisions the hook files, the staged-file helper, **and**
+  the `precommit`/`prepush` npm scripts they call (a prerequisite-gated `package.json` merge; it
+  refuses rather than break a repo still on Husky 4 or without Biome). See
+  `docs/migrations/husky-hook-scripts.md`.
+- The `node-library` release workflow: tag + GitHub Release, with **opt-in** npm publish (only when
+  the `NPM_TOKEN` secret is set).
+- All three shared libraries live in the `cica-platform` monorepo and are tested and lint clean.
+- Proven against real repos: `apply` has been run on `cica-logger` and `cica-apply-web` (throwaway
+  clones; the source repos are never touched), and an adoption report exists for
+  `cica-apply-data-capture-service`.
 
 **Not yet built (and why):**
-- **Push + PR creation** — needs GitHub credentials + an auth decision (GitHub App vs token).
+- **Push + PR creation** (`validate`) — needs GitHub credentials + an auth decision (GitHub App vs
+  token). Today `apply` stops after a local commit.
 - **`sync`** (propagate standard changes to all repos) — needs fleet orchestration / auth.
 - **`create`** (polished new-repo generator) — needs a Copier-vs-Projen decision; `apply` + profiles
   already cover most of it.
+- **`github-action` and `legacy` profiles, and governance settings** — not started.
 - **Reaching the ~13 GitHub-only repos** — needs GitHub access (only 7 are available locally).
-- **Git repos + CI not yet wired** — the libraries and tooling are directories, not committed repos.
+
+Per-task status (what is done, partial or not started) is tracked in
+`.kiro/specs/project-baseline/tasks.md`.
 
 ---
 

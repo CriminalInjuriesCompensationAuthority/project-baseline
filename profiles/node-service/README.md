@@ -82,6 +82,6 @@ This profile assumes these scripts exist (see reference impl):
 ## Notes
 
 - `biome.json` here omits the `$schema` key. Add
-  `"$schema": "https://biomejs.dev/schemas/2.5.10/schema.json"` as the first key in each generated
+  `"$schema": "https://biomejs.dev/schemas/2.5.12/schema.json"` as the first key in each generated
   repo for editor autocomplete (kept in sync with the Biome version in `policies/versions.json`).
 - GitHub Actions are pinned by commit SHA; Dependabot (github-actions ecosystem) keeps them current.
