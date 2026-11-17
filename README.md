@@ -120,6 +120,32 @@ standalone, independently-versioned `@cica/*` package consumers import individua
 
 ---
 
+## Releasing the baseline: the `v1` CI ref
+
+Every adopted repo's `.github/workflows/ci.yml` is a thin caller of this repo's reusable workflow,
+pinned by tag:
+
+```yaml
+uses: CriminalInjuriesCompensationAuthority/project-baseline/.github/workflows/node-ci.yml@v1
+```
+
+So **the `v1` tag must exist and must point at a commit where `node-ci.yml` works** — if it is
+missing, every consumer's CI fails with "workflow file issue" (this happened once: `cica-platform`
+failed on every push until the tag was created). `v1` is a *moving* major tag, with `v1.0.0` as the
+immutable marker for the first release.
+
+- **Backwards-compatible change** to `node-ci.yml` (same inputs, same scripts called): get CI green
+  on `main`, then move the tag so all consumers pick it up:
+  ```bash
+  git tag -fa v1 -m "project-baseline v1" <sha> && git push --force origin v1
+  git tag -a v1.x.y -m "project-baseline v1.x.y" <sha> && git push origin v1.x.y
+  ```
+- **Breaking change** (renamed input, a new script every repo must define): cut `v2` and bump
+  consumers through `baseline apply` / sync; leave `v1` where it is.
+- Consumers run whatever `v1` points at, so only tag a commit whose CI is green.
+
+---
+
 ## Current status (honest)
 
 **Working and tested today:**
