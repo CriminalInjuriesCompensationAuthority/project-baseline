@@ -96,9 +96,7 @@ export function computeChanges({ planned, baseline, repoRoot, profile, vars }) {
     const { root: baselineRoot, filePolicy } = baseline;
     // Build the lookup from PROFILE-RESOLVED entries so each file's `source` is the
     // one that applies to this profile (e.g. node-library dependabot, not node-service).
-    const policyByPath = new Map(
-        resolvedFileEntries(filePolicy, profile).map((f) => [f.path, f])
-    );
+    const policyByPath = new Map(resolvedFileEntries(filePolicy, profile).map((f) => [f.path, f]));
 
     const changes = [];
     const skippedManual = [];
