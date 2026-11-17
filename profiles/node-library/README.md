@@ -17,8 +17,14 @@ semver-tagged refs, e.g.:
 
 Consequences for this profile:
 
-- **Release = a git tag**, not `npm publish`. The release workflow creates and pushes a semver tag
-  (and a GitHub Release), it does not push to a registry.
+- **Release = a git tag** by default. The release workflow creates and pushes a semver tag (and a
+  GitHub Release); with no further setup it does not push to a registry.
+- **npm publishing is opt-in.** If the repo secret `NPM_TOKEN` is set, the same workflow also runs
+  `npm publish` (before tagging, so a tag never points at an unpublished version). With no token it
+  logs a notice and skips, so existing git-ref libraries are unaffected. Registry auth is applied to
+  the publish step only. For a scoped public package set `"publishConfig": { "access": "public" }`.
+  A **monorepo** of several packages cannot be consumed by git ref at all and must publish; see
+  `cica-platform` for that variant (per-package `<package>-vX.Y.Z` tags).
 - A **build step must run before consumers use the package**. Consumers install from the tag, so the
   built artifact must be present — via a committed `dist/` or a `prepare`/`prepack` build script that
   runs on install. (`q-templates-application` uses `prepare: npm run build` + a committed `dist/`.)
@@ -37,7 +43,7 @@ Added by this profile:
 | --- | --- |
 | `.github/workflows/tests.yml` | Node 24 + gitleaks + `npm run prepush` (same as node-service) |
 | `.github/workflows/sca.yml` | npm audit gate + MoJ SCA |
-| `.github/workflows/release.yml` | Tag-based release: validate, build, create `vX.Y.Z` tag + GitHub Release |
+| `.github/workflows/release.yml` | Tag-based release: validate, quality gate (incl. gitleaks), build, optional npm publish (when `NPM_TOKEN` is set), create `vX.Y.Z` tag + GitHub Release |
 | `.github/dependabot.yml` | Standard Dependabot (npm + github-actions; **no docker** for libraries) |
 
 **No `Dockerfile`** — libraries are not containerised. **No deploy workflow** — there is no K8s deploy.

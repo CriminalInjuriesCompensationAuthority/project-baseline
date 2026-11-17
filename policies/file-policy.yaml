@@ -204,10 +204,9 @@ files:
     whenAbsent: create
     whenPresent: manual
     note: >
-      Per-package tag-based release workflow for libraries (git tag + GitHub Release + npm publish
-      under the @cica scope). NOTE: the template here currently lacks the npm publish step that
-      cica-platform's live release workflow has — see the reconciliation gap in
-      docs/migrations/library-release-npm-publish.md.
+      Tag-based release workflow for a single-package library (vX.Y.Z tag + GitHub Release). npm
+      publishing is opt-in: it runs only when the NPM_TOKEN repo secret is set, so git-ref libraries
+      are unaffected. See docs/migrations/library-release-npm-publish.md.
 
   # ---- metadata (all profiles): source selected per profile ----
   - path: .project-baseline.yaml

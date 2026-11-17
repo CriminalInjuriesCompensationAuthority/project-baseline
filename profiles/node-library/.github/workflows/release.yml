@@ -1,9 +1,15 @@
 name: Release
 
 # Tag-based release for a SINGLE-package library repo (one package.json at the root).
-# Creates a vX.Y.Z tag + GitHub Release. NOTE: this template does not yet publish to the npm
-# registry; the agreed target is npm publish under the @cica scope (as cica-platform's monorepo
-# release workflow already does). See docs/migrations/library-release-npm-publish.md.
+#
+#   Always:  validate -> quality gate -> build -> create a vX.Y.Z tag + GitHub Release.
+#   Opt-in:  publish to the npm registry. This happens ONLY when the repo secret NPM_TOKEN is set,
+#            so libraries still consumed via `github:` semver refs keep working unchanged. When it
+#            runs, publish comes BEFORE the tag, so a tag never points at an unpublished version.
+#
+# Registry auth is applied to the publish step only (never to install/test/build), and the token is
+# exposed only to that step, so dependency install scripts cannot read it.
+# For a scoped public package set "publishConfig": { "access": "public" } in package.json.
 # Trigger: manual dispatch with the version to cut, after it has been merged to the default branch.
 
 on:
@@ -33,20 +39,71 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Verify package.json version matches requested version
+      - name: Install gitleaks
         run: |
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-          if [ "$PKG_VERSION" != "${{ inputs.version }}" ]; then
-            echo "package.json version ($PKG_VERSION) != requested (${{ inputs.version }})"
+          # Pin gitleaks to avoid CLI command drift across runner package versions.
+          GITLEAKS_VERSION="8.21.2"
+          GITLEAKS_TARBALL="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          GITLEAKS_SHA256="5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba"
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${GITLEAKS_TARBALL}" -o /tmp/gitleaks.tar.gz
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Verify package.json version matches requested version
+        env:
+          WANT: ${{ inputs.version }}
+        run: |
+          HAVE="$(node -p "require('./package.json').version")"
+          if [ "$HAVE" != "$WANT" ]; then
+            echo "package.json version ($HAVE) != requested ($WANT)"
             echo "Bump package.json and merge before releasing."
             exit 1
           fi
 
-      - name: Quality gate (lint, test, audit)
+      - name: Quality gate (lint, test, audit, secrets)
         run: npm run prepush
 
       - name: Build distributable
         run: npm run build
+
+      - name: Fail fast if the tag already exists
+        env:
+          TAG: "v${{ inputs.version }}"
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists on the remote. Bump the version or delete the tag."
+            exit 1
+          fi
+          echo "Tag $TAG is free."
+
+      # npm publishing is opt-in. The secret is read only here, just to decide; it is not exported
+      # to the install/test/build steps above.
+      - name: Detect npm publish opt-in
+        id: npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=npm publish skipped::NPM_TOKEN is not set, so this release creates a tag + GitHub Release only. Set the NPM_TOKEN repo secret to also publish to npm."
+          fi
+
+      - name: Configure npm registry auth (publish step only)
+        if: steps.npm.outputs.publish == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 #v7.0.0
+        with:
+          node-version: "24.15.0"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Publish to npm
+        if: steps.npm.outputs.publish == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish
 
       - name: Create and push tag
         env:
@@ -54,9 +111,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists"; exit 1
-          fi
           git tag -a "$TAG" -m "Release $TAG"
           git push origin "$TAG"
 

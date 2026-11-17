@@ -149,7 +149,7 @@ profiles:
       - profiles/node-library/
     provisions:
       dependabot: profiles/node-library/.github/dependabot.yml   # npm + github-actions, no docker
-    release: tag-based            # per-package git tag + GitHub Release + npm publish (@cica scope)
+    release: tag-based            # git tag + GitHub Release; npm publish is opt-in via the NPM_TOKEN secret
     # A single node-library repo holds one package (one package.json at the root). The monorepo
     # variant below holds several @cica/* packages under packages/* behind one shared root.
     monorepo:

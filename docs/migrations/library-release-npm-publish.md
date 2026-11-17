@@ -1,39 +1,54 @@
-# Provisioning gap: library release workflow should publish to npm
+# Library release workflow: opt-in npm publish
 
-Status: **gap recorded.** The baseline's provisioned `node-library` release workflow does not yet
-publish to the npm registry.
+Status: **implemented** in `profiles/node-library/.github/workflows/release.yml`.
 
-## Current state
+## Background
 
-`profiles/node-library/.github/workflows/release.yml` (what the baseline provisions into a
-single-package library repo) creates a `vX.Y.Z` tag + GitHub Release and runs `npm run build`, but
-has **no `npm publish` step**. Its header previously said "NOT an npm-registry publish".
+The baseline's single-package `node-library` release template used to tag and create a GitHub
+Release but never publish. Meanwhile `cica-platform` (a monorepo) must publish to npm, because a
+`github:` ref cannot address one package inside a monorepo. The two diverged.
 
-Meanwhile the agreed distribution target (see `baseline.config.yaml` → `distribution.target:
-npm-registry` and `docs/shared-libraries.md`) is: publish `@cica/*` packages to the npm registry so
-consumers depend on them by name + semver range and Dependabot bumps them. The working reference is
-`cica-platform`'s own release workflow, which:
+The two cases are genuinely different, so the template was not simply changed to always publish:
 
-- runs the quality gate,
-- publishes to npm (`NODE_AUTH_TOKEN` from `NPM_TOKEN`, `registry-url` + scope via `setup-node`),
-- **then** creates the tag and GitHub Release (publish-before-tag, so a tag never points at an
-  unpublished version),
-- uses a per-package tag `<package>-vX.Y.Z` (monorepo) rather than a plain `vX.Y.Z`.
+- **Single-package libraries** (e.g. `q-router`, `q-templates-application`) are consumed by
+  `github:` semver ref, which works for a one-package repo, and have no npm token or org. An
+  unconditional `npm publish` would **break their release workflow**.
+- **Monorepos** (`cica-platform`) must publish.
 
-## The gap
+## What the template does now
 
-The provisioned single-repo template and the live monorepo workflow have diverged. A library repo
-scaffolded from the baseline today would get a release workflow that tags but does not publish.
+`validate -> quality gate -> build -> [optional npm publish] -> tag -> GitHub Release`
 
-## Recommended fix (needs a task)
+- **Publishing is opt-in**, keyed on the `NPM_TOKEN` repo secret. With no token the workflow logs a
+  notice (`npm publish skipped`) and creates the tag + GitHub Release only, exactly as before, so
+  existing git-ref libraries are unaffected. Setting the secret turns publishing on with no
+  workflow edit.
+- **Publish runs before tagging**, so a tag can never point at a version that failed to publish.
+- **A tag-exists check runs before publish.** Without it a re-run would publish, then fail at the tag
+  step, leaving a published version with no tag.
+- **Registry auth is confined to the publish step.** `setup-node` is invoked with `registry-url`
+  immediately before `npm publish`, and the token is exposed only to that step (and to a tiny
+  detection step that checks whether it is set). Install, test, build and audit never see it, so a
+  dependency install script cannot read the publish token. Applying `registry-url` job-wide is also
+  fragile: `setup-node` v7 no longer exports a placeholder `NODE_AUTH_TOKEN`, and older versions send
+  a placeholder token to the registry during `npm ci`.
+- **gitleaks is installed** (pinned + checksum-verified, same as `tests.yml`) before the quality
+  gate. The provisioned `prepush` script runs a strict `gitleaks detect`, which fails if gitleaks is
+  missing, so the release job needs it.
+- The version input is passed through `env` rather than interpolated into the shell script.
 
-1. Add an `npm publish` step to `profiles/node-library/.github/workflows/release.yml`, using
-   `setup-node` `registry-url: https://registry.npmjs.org` + `scope: "@cica"` and
-   `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`, ordered **before** the tag step.
-2. Decide whether the single-repo template keeps the `npm run build` step (cica-platform has no build;
-   a single-repo library may). Make it conditional or document the expectation.
-3. Note the tag-format difference: single-repo = `vX.Y.Z`; monorepo (cica-platform) =
-   `<package>-vX.Y.Z`. These are intentionally different and both valid.
-4. Record `NPM_TOKEN` as a required secret for `node-library` repos in the provisioning docs.
+## Remaining differences from `cica-platform` (intentional)
 
-Blocked on the same non-code prerequisite as cica-platform: the `@cica` npm org + an `NPM_TOKEN`.
+| | single-repo template | `cica-platform` (monorepo) |
+| --- | --- | --- |
+| Tag | `vX.Y.Z` | `<package>-vX.Y.Z` |
+| Publish | opt-in (`NPM_TOKEN`) | always (it must) |
+| Build step | `npm run build` | none |
+| Package choice | n/a | `package` input selects a workspace |
+
+## Prerequisites for a repo that opts in
+
+- `NPM_TOKEN` repo secret (an npm automation token with publish rights).
+- For a scoped public package: `"publishConfig": { "access": "public" }` in `package.json`.
+- The package must not be `"private": true`.
+- Still blocked, for the `@cica` scope, on CICA owning the `@cica` org on npmjs.com.
